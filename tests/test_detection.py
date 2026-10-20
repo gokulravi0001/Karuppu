@@ -134,6 +134,28 @@ class TestVoiceProtection(unittest.TestCase):
         events = deque([100.0, 102.0, 104.0])
         self.assertLess(len(events), 5)
 
+    def test_mic_glitch_macro_sliding_window(self):
+        window = 4
+        events = deque()
+        now = time.time()
+        # 8 rapid mute toggles in 2s
+        for i in range(8):
+            events.append(now - (2 - i * 0.2))
+        while events and (now - events[0]) > window:
+            events.popleft()
+        self.assertGreaterEqual(len(events), 8)
+
+    def test_vc_raid_surge_window(self):
+        window = 8
+        joins = deque()
+        now = time.time()
+        # 5 distinct joins in 3s
+        for i in range(5):
+            joins.append((now - (3 - i * 0.5), 1000 + i))
+        while joins and (now - joins[0][0]) > window:
+            joins.popleft()
+        self.assertGreaterEqual(len(joins), 4)
+
 
 class TestAttachmentSecurity(unittest.TestCase):
     def test_dangerous_extensions(self):

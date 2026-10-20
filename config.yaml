@@ -90,7 +90,7 @@ phishing_detector:
     - "reddit.com"
 
 # VOICE CHANNEL PROTECTION
-# Protects against rapid VC connect/disconnect hopping and notification chime spam
+# Protects all voice channels 24/7 without needing the bot to join the voice room
 voice_protection:
   enabled: true
   # Voice channel hopping (notification connect/disconnect chime spam)
@@ -99,6 +99,19 @@ voice_protection:
     max_switches: 5               # Max channel transitions
     window_seconds: 10            # within 10 seconds
     auto_timeout_seconds: 300     # 5-minute timeout for chime spammers
+
+  # Rapid mic toggle & mute macro glitch spam (creates popping audio interference)
+  mic_glitch_spam:
+    enabled: true
+    max_toggles: 8                # Max mute/unmute/deaf toggles
+    window_seconds: 4             # within 4 seconds
+    auto_timeout_seconds: 180     # 3-minute timeout
+
+  # Voice channel raid surge (mass join into voice channels)
+  vc_raid_surge:
+    enabled: true
+    join_threshold: 4             # >= 4 joins
+    window_seconds: 8             # in 8 seconds
 
 # EMERGENCY LOCKDOWN CONFIGURATION
 lockdown:

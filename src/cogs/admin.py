@@ -285,7 +285,7 @@ class SecurityAdmin(commands.GroupCog, name="security"):
 
     @app_commands.command(
         name="auto_setup",
-        description="[Admins Only] Creates the 'BEHIND THE SCENES' private staff suite with 'command-center' & log channels."
+        description="[Admins Only] 1-Click setup of 'BEHIND THE SCENES' staff category and log channels."
     )
     @app_commands.describe(
         allowed_role="Optional: An extra moderator/staff role allowed to see these private channels"

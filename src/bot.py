@@ -10,6 +10,7 @@ import discord
 from discord.ext import commands, tasks
 from src.config import bot_config
 from src.database import db
+from src.dashboard.views import setup_dashboard_routes
 
 # Configure structured logging
 logging.basicConfig(
@@ -53,13 +54,14 @@ class SecurityBot(commands.Bot):
         return web.json_response(data, status=status_code)
 
     async def _start_healthcheck_server(self):
-        """Starts a lightweight aiohttp server on HEALTH_PORT for container probes."""
+        """Starts the aiohttp server on HEALTH_PORT for container probes & web dashboard."""
         self.health_app.router.add_get("/health", self._health_handler)
+        setup_dashboard_routes(self.health_app, self)
         self.health_runner = web.AppRunner(self.health_app)
         await self.health_runner.setup()
         site = web.TCPSite(self.health_runner, "0.0.0.0", bot_config.health_port)
         await site.start()
-        logger.info("Health check endpoint listening on port %d", bot_config.health_port)
+        logger.info("Web dashboard & health server listening on port %d", bot_config.health_port)
 
     async def setup_hook(self):
         """Executes initialization steps before gateway login."""

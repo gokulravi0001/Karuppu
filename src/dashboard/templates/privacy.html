@@ -1,0 +1,62 @@
+<div class="max-w-4xl mx-auto bg-discord-card border border-gray-800 rounded-2xl p-8 md:p-12">
+    <div class="border-b border-gray-800 pb-6 mb-8">
+        <h1 class="text-3xl md:text-4xl font-extrabold text-white mb-2">Privacy Policy</h1>
+        <p class="text-xs text-gray-400">Effective Date: October 20, 2026 • Last Updated: October 20, 2026</p>
+    </div>
+
+    <div class="space-y-6 text-gray-300 text-sm leading-relaxed">
+        <section>
+            <h2 class="text-lg font-bold text-white mb-2">1. Overview & Privacy-by-Design</h2>
+            <p>
+                <b>Antigravity Security</b> is built with strict privacy-by-design standards. We believe that security should never require surveillance. We collect and retain only the minimal operational data required to detect raids, filter scam links, and provide server activity logs.
+            </p>
+        </section>
+
+        <section>
+            <h2 class="text-lg font-bold text-white mb-2">2. Information We Collect</h2>
+            <p>When operating in a Discord server, the application processes the following types of data:</p>
+            <ul class="list-disc pl-5 mt-2 space-y-1.5 text-gray-400">
+                <li><b>Discord Identifiers</b>: Discord User IDs, Server (Guild) IDs, and Channel IDs.</li>
+                <li><b>Account Metadata</b>: Account creation dates and server join timestamps (utilized strictly for raid surge detection and account age audits).</li>
+                <li><b>Security Incident Hashes</b>: When a suspicious phishing link or spam burst is flagged, the message content is cryptographically hashed using <b>SHA-256</b> and stored alongside a short redacted 60-character snippet for moderator review.</li>
+                <li><b>Activity Log Feeds</b>: Message edits (before/after), deletions, and voice channel state transitions routed to your server's designated private log channels.</li>
+            </ul>
+        </section>
+
+        <section>
+            <h2 class="text-lg font-bold text-white mb-2">3. Ephemeral In-Memory Processing (No Long-Term Message Storage)</h2>
+            <p>
+                <b>We do not permanently store raw message contents.</b> All standard message scanning (rate limiting, copypasta duplicate checking, and phishing checks) occurs in fast, temporary in-memory sliding buffers with a strict <b>60-second Time-To-Live (TTL)</b>. Once a message passes heuristics, it is completely wiped from runtime memory.
+            </p>
+        </section>
+
+        <section>
+            <h2 class="text-lg font-bold text-white mb-2">4. Data Retention & Automated Deletion</h2>
+            <p>
+                Structured security incident records stored in the server's local database are automatically pruned by a daily background maintenance task. Records older than the configured retention window (default: <b>30 days</b>) are permanently purged from the database.
+            </p>
+        </section>
+
+        <section>
+            <h2 class="text-lg font-bold text-white mb-2">5. Third-Party Sharing & Commercialization</h2>
+            <p>
+                <b>We never sell, lease, or monetize your data.</b> We do not share Discord user information, server settings, or audit logs with advertising networks, third-party analytics providers, or external data brokers.
+            </p>
+        </section>
+
+        <section>
+            <h2 class="text-lg font-bold text-white mb-2">6. User Rights & Data Removal Requests</h2>
+            <p>
+                Server administrators have full control over their server's database records. Removing the bot from a server and deleting the container volume permanently deletes all associated server records. If an individual user wishes to request deletion of specific incident logs, they may contact the server administrator or submit a request via our GitHub repository.
+            </p>
+        </section>
+
+        <section class="border-t border-gray-800 pt-6">
+            <h2 class="text-lg font-bold text-white mb-2">7. Contact & Privacy Inquiries</h2>
+            <p class="text-gray-400">
+                For questions regarding this Privacy Policy or our security handling practices, please contact us on GitHub:
+                <a href="https://github.com/gokulravi0001/Karuppu" class="text-discord-blurple hover:underline ml-1">https://github.com/gokulravi0001/Karuppu</a>
+            </p>
+        </section>
+    </div>
+</div>

@@ -4,3 +4,4 @@ aiosqlite>=0.20.0
 python-dotenv>=1.0.1
 aiohttp>=3.9.5
 Levenshtein>=0.25.1
+Jinja2>=3.1.2

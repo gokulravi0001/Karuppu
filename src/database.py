@@ -145,6 +145,17 @@ class AuditDatabase:
             """, (status, moderator_id, incident_id))
             await db.commit()
 
+    async def get_recent_incidents(self, guild_id: int, limit: int = 50) -> List[Dict[str, Any]]:
+        """Retrieves recent security incidents for a specific guild."""
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                "SELECT * FROM incidents WHERE guild_id = ? ORDER BY timestamp DESC LIMIT ?",
+                (guild_id, limit)
+            ) as cursor:
+                rows = await cursor.fetchall()
+                return [dict(r) for r in rows]
+
     async def get_guild_settings(self, guild_id: int) -> Dict[str, Any]:
         """Fetches settings for a specific guild."""
         async with aiosqlite.connect(self.db_path) as db:
@@ -217,6 +228,67 @@ class AuditDatabase:
                 VALUES (?, ?)
                 ON CONFLICT(guild_id) DO UPDATE SET dry_run = excluded.dry_run;
             """, (guild_id, 1 if dry_run else 0))
+            await db.commit()
+
+    async def update_all_role_gates(self, guild_id: int, role_data: Dict[str, Any]) -> None:
+        """Updates multiple role gates for a guild at once."""
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute("""
+                INSERT INTO guild_settings (
+                    guild_id,
+                    link_role_id, link_role_name,
+                    media_role_id, media_role_name,
+                    mic_role_id, mic_role_name,
+                    archive_role_id, archive_role_name,
+                    invite_role_id, invite_role_name
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(guild_id) DO UPDATE SET
+                    link_role_id = excluded.link_role_id,
+                    link_role_name = excluded.link_role_name,
+                    media_role_id = excluded.media_role_id,
+                    media_role_name = excluded.media_role_name,
+                    mic_role_id = excluded.mic_role_id,
+                    mic_role_name = excluded.mic_role_name,
+                    archive_role_id = excluded.archive_role_id,
+                    archive_role_name = excluded.archive_role_name,
+                    invite_role_id = excluded.invite_role_id,
+                    invite_role_name = excluded.invite_role_name;
+            """, (
+                guild_id,
+                role_data.get("link_role_id"), role_data.get("link_role_name"),
+                role_data.get("media_role_id"), role_data.get("media_role_name"),
+                role_data.get("mic_role_id"), role_data.get("mic_role_name"),
+                role_data.get("archive_role_id"), role_data.get("archive_role_name"),
+                role_data.get("invite_role_id"), role_data.get("invite_role_name")
+            ))
+            await db.commit()
+
+    async def update_all_log_channels(self, guild_id: int, log_data: Dict[str, int]) -> None:
+        """Updates all 5 specialized log channels for a guild at once."""
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute("""
+                INSERT INTO guild_settings (
+                    guild_id,
+                    chat_log_channel_id,
+                    voice_log_channel_id,
+                    member_log_channel_id,
+                    mod_log_channel_id,
+                    server_log_channel_id
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(guild_id) DO UPDATE SET
+                    chat_log_channel_id = excluded.chat_log_channel_id,
+                    voice_log_channel_id = excluded.voice_log_channel_id,
+                    member_log_channel_id = excluded.member_log_channel_id,
+                    mod_log_channel_id = excluded.mod_log_channel_id,
+                    server_log_channel_id = excluded.server_log_channel_id;
+            """, (
+                guild_id,
+                log_data.get("chat_log_channel_id"),
+                log_data.get("voice_log_channel_id"),
+                log_data.get("member_log_channel_id"),
+                log_data.get("mod_log_channel_id"),
+                log_data.get("server_log_channel_id")
+            ))
             await db.commit()
 
     async def add_dynamic_bypass(self, bypass_type: str, target_id: int, target_name: str, added_by: int, guild_id: int = 0) -> bool:

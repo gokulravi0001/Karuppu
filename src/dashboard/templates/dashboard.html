@@ -1,0 +1,53 @@
+<div class="mb-8">
+    <h1 class="text-3xl font-extrabold text-white mb-2">Select a Server</h1>
+    <p class="text-gray-400 text-sm">Choose a server you manage to configure security gates, view live logs, or manage staff settings.</p>
+</div>
+
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+    {% for g in guilds %}
+    <div class="bg-discord-card border border-gray-800 hover:border-gray-700 transition rounded-2xl p-6 flex flex-col justify-between">
+        <div class="flex items-center space-x-4 mb-6">
+            {% if g.icon %}
+            <img src="https://cdn.discordapp.com/icons/{{ g.id }}/{{ g.icon }}.png?size=128" 
+                 class="w-14 h-14 rounded-2xl shadow object-cover" alt="guild icon">
+            {% else %}
+            <div class="w-14 h-14 rounded-2xl bg-discord-blurple flex items-center justify-center font-bold text-white text-lg shadow">
+                {{ g.name[:2] }}
+            </div>
+            {% endif %}
+            <div class="overflow-hidden">
+                <h3 class="font-bold text-white text-lg truncate">{{ g.name }}</h3>
+                <span class="text-xs text-gray-400">ID: {{ g.id }}</span>
+            </div>
+        </div>
+
+        <div>
+            {% if g.bot_present %}
+            <a href="/dashboard/guild/{{ g.id }}" 
+               class="w-full bg-discord-blurple hover:bg-indigo-600 text-white font-medium text-sm py-2.5 rounded-xl transition flex items-center justify-center space-x-2">
+                <span>Manage Security</span>
+                <span>➔</span>
+            </a>
+            {% else %}
+            <a href="https://discord.com/oauth2/authorize?client_id={{ client_id }}&guild_id={{ g.id }}&permissions=277025524758&scope=bot%20applications.commands" 
+               target="_blank"
+               class="w-full bg-gray-700 hover:bg-gray-600 text-gray-200 font-medium text-sm py-2.5 rounded-xl transition flex items-center justify-center space-x-2">
+                <span>Invite Bot</span>
+                <span>➕</span>
+            </a>
+            {% endif %}
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+{% if not guilds %}
+<div class="text-center py-16 bg-discord-card border border-gray-800 rounded-2xl p-8">
+    <div class="text-4xl mb-4">🔍</div>
+    <h3 class="text-xl font-bold text-white mb-2">No Manageable Servers Found</h3>
+    <p class="text-gray-400 text-sm max-w-md mx-auto mb-6">
+        You must possess the <b>Administrator</b> or <b>Manage Server</b> permission in a Discord server to access its security dashboard.
+    </p>
+    <a href="/" class="text-discord-blurple hover:underline text-sm font-medium">Return to Home</a>
+</div>
+{% endif %}

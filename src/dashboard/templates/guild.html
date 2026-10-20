@@ -1,0 +1,460 @@
+<div class="mb-8 flex flex-col md:flex-row md:items-center justify-between gap-4">
+    <div class="flex items-center space-x-4">
+        {% if guild.icon %}
+        <img src="https://cdn.discordapp.com/icons/{{ guild.id }}/{{ guild.icon }}.png?size=128" 
+             class="w-16 h-16 rounded-2xl shadow object-cover" alt="guild icon">
+        {% else %}
+        <div class="w-16 h-16 rounded-2xl bg-discord-blurple flex items-center justify-center font-bold text-white text-xl shadow">
+            {{ guild.name[:2] }}
+        </div>
+        {% endif %}
+        <div>
+            <h1 class="text-3xl font-extrabold text-white">{{ guild.name }}</h1>
+            <div class="flex items-center space-x-3 text-xs text-gray-400 mt-1">
+                <span>ID: {{ guild.id }}</span>
+                <span>•</span>
+                <span>{{ guild.member_count }} Members</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Mode Badge & Toggle -->
+    <div class="flex items-center space-x-3 bg-discord-card border border-gray-800 p-2 rounded-xl">
+        <span class="text-xs text-gray-400 font-medium pl-2">Mode:</span>
+        <button id="dryRunToggleBtn" onclick="toggleDryRun()" 
+                class="px-3.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center space-x-1.5 {% if is_dry_run %}bg-amber-500/20 text-amber-300 border border-amber-500/30{% else %}bg-discord-green/20 text-discord-green border border-discord-green/30{% endif %}">
+            <span class="w-2 h-2 rounded-full {% if is_dry_run %}bg-amber-400 animate-pulse{% else %}bg-discord-green{% endif %}"></span>
+            <span id="dryRunText">{% if is_dry_run %}Dry-Run (Alert Only){% else %}Active Enforcement{% endif %}</span>
+        </button>
+    </div>
+</div>
+
+<!-- Quick Setup Alert Banner -->
+<div class="bg-gradient-to-r from-discord-blurple/20 to-indigo-900/20 border border-discord-blurple/30 rounded-2xl p-6 mb-8 flex flex-col md:flex-row justify-between items-center gap-4">
+    <div>
+        <h3 class="text-lg font-bold text-white flex items-center space-x-2">
+            <span>⚡ 1-Click "BEHIND THE SCENES" Staff Suite Setup</span>
+        </h3>
+        <p class="text-gray-300 text-sm mt-1">
+            Automatically create the themed private category <b class="text-white">＝＝＝𓆩『  𝗕𝗘𝗛𝗜𝗡𝗗 𝗧𝗛𝗘 𝗦𝗖𝗘𝗡𝗘𝗦  』𓆪＝＝＝</b> with <b class="text-white">🚨・𝗰𝗼𝗺𝗺𝗮𝗻𝗱-𝗰𝗲𝗻𝘁𝗲𝗿</b> and all 5 log channels locked to admins!
+        </p>
+    </div>
+    <button onclick="triggerAutoSetup()" id="autoSetupBtn"
+            class="whitespace-nowrap bg-discord-blurple hover:bg-indigo-600 text-white font-semibold text-sm px-5 py-2.5 rounded-xl transition shadow flex items-center space-x-2">
+        <span>Create Staff Suite</span>
+        <span>✨</span>
+    </button>
+</div>
+
+<!-- Tabs: Settings, Actions, Live Logs -->
+<div class="border-b border-gray-800 mb-8 flex space-x-6 text-sm font-semibold">
+    <button onclick="switchTab('gates')" id="tab-gates" class="pb-3 text-discord-blurple border-b-2 border-discord-blurple transition">Level Role Gates</button>
+    <button onclick="switchTab('logs')" id="tab-logs" class="pb-3 text-gray-400 hover:text-white transition">Log Destinations</button>
+    <button onclick="switchTab('ops')" id="tab-ops" class="pb-3 text-gray-400 hover:text-white transition">Operations & Containment</button>
+    <button onclick="switchTab('audit')" id="tab-audit" class="pb-3 text-gray-400 hover:text-white transition">Live Incident Audit Logs</button>
+</div>
+
+<!-- TAB 1: Level Role Gates Form -->
+<div id="content-gates" class="space-y-6">
+    <div class="bg-discord-card border border-gray-800 rounded-2xl p-6">
+        <h3 class="text-xl font-bold text-white mb-1">Progressive Trust Level Gates</h3>
+        <p class="text-gray-400 text-sm mb-6">Select which level reward role unlocks each security permission. Members with this role or higher ranks inherit access.</p>
+
+        <form id="gatesForm" onsubmit="saveRoleGates(event)" class="space-y-5">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <!-- Links Gate -->
+                <div>
+                    <label class="block text-xs font-semibold uppercase text-gray-400 mb-2">🔗 External Links & URLs Gate</label>
+                    <select name="links_role_id" class="w-full bg-discord-dark border border-gray-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-discord-blurple">
+                        <option value="0">Default (Level 5: Guild Recruit)</option>
+                        {% for r in roles %}
+                        <option value="{{ r.id }}" {% if settings.link_role_id == r.id %}selected{% endif %}>@{{ r.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <!-- Media & GIF Gate -->
+                <div>
+                    <label class="block text-xs font-semibold uppercase text-gray-400 mb-2">🎨 GIFs, Stickers & Uploads Gate</label>
+                    <select name="media_role_id" class="w-full bg-discord-dark border border-gray-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-discord-blurple">
+                        <option value="0">Default (Level 5: Guild Recruit)</option>
+                        {% for r in roles %}
+                        <option value="{{ r.id }}" {% if settings.media_role_id == r.id %}selected{% endif %}>@{{ r.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <!-- Voice Mic Gate -->
+                <div>
+                    <label class="block text-xs font-semibold uppercase text-gray-400 mb-2">🎙️ Voice Channel Microphone Gate</label>
+                    <select name="mic_role_id" class="w-full bg-discord-dark border border-gray-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-discord-blurple">
+                        <option value="0">Default (Level 5: Guild Recruit)</option>
+                        {% for r in roles %}
+                        <option value="{{ r.id }}" {% if settings.mic_role_id == r.id %}selected{% endif %}>@{{ r.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <!-- ZIP Archives Gate -->
+                <div>
+                    <label class="block text-xs font-semibold uppercase text-gray-400 mb-2">📦 ZIP & RAR Archive Uploads Gate</label>
+                    <select name="archive_role_id" class="w-full bg-discord-dark border border-gray-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-discord-blurple">
+                        <option value="0">Default (Level 10: Bronze Rank)</option>
+                        {% for r in roles %}
+                        <option value="{{ r.id }}" {% if settings.archive_role_id == r.id %}selected{% endif %}>@{{ r.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <!-- Discord Server Invites Gate -->
+                <div>
+                    <label class="block text-xs font-semibold uppercase text-gray-400 mb-2">🚫 Discord Server Invites Gate</label>
+                    <select name="invite_role_id" class="w-full bg-discord-dark border border-gray-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-discord-blurple">
+                        <option value="0">Default (Level 10: Bronze Rank)</option>
+                        {% for r in roles %}
+                        <option value="{{ r.id }}" {% if settings.invite_role_id == r.id %}selected{% endif %}>@{{ r.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+
+            <div class="pt-4 flex items-center justify-between border-t border-gray-800">
+                <span id="gateSaveStatus" class="text-xs text-discord-green font-medium"></span>
+                <button type="submit" class="bg-discord-blurple hover:bg-indigo-600 text-white font-semibold text-sm px-6 py-2.5 rounded-xl transition shadow">
+                    Save Level Gates
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- TAB 2: Log Destinations Form -->
+<div id="content-logs" class="space-y-6 hidden">
+    <div class="bg-discord-card border border-gray-800 rounded-2xl p-6">
+        <h3 class="text-xl font-bold text-white mb-1">Dedicated Log Destinations</h3>
+        <p class="text-gray-400 text-sm mb-6">Route different audit events to specific text channels to keep your server clean and organized.</p>
+
+        <form id="logsForm" onsubmit="saveLogChannels(event)" class="space-y-5">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <!-- Security Alerts -->
+                <div>
+                    <label class="block text-xs font-semibold uppercase text-gray-400 mb-2">🚨 Security Alerts & Command Center</label>
+                    <select name="alert_channel_id" class="w-full bg-discord-dark border border-gray-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-discord-blurple">
+                        <option value="0">Select a channel...</option>
+                        {% for ch in channels %}
+                        <option value="{{ ch.id }}" {% if settings.alert_channel_id == ch.id %}selected{% endif %}>#{{ ch.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <!-- Chat Logs -->
+                <div>
+                    <label class="block text-xs font-semibold uppercase text-gray-400 mb-2">💬 Chat Logs (Edits & Deletions)</label>
+                    <select name="chat_log_channel_id" class="w-full bg-discord-dark border border-gray-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-discord-blurple">
+                        <option value="0">Select a channel...</option>
+                        {% for ch in channels %}
+                        <option value="{{ ch.id }}" {% if settings.chat_log_channel_id == ch.id %}selected{% endif %}>#{{ ch.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <!-- Voice Logs -->
+                <div>
+                    <label class="block text-xs font-semibold uppercase text-gray-400 mb-2">🔊 Voice Logs (VC Joins/Leaves/Switches)</label>
+                    <select name="voice_log_channel_id" class="w-full bg-discord-dark border border-gray-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-discord-blurple">
+                        <option value="0">Select a channel...</option>
+                        {% for ch in channels %}
+                        <option value="{{ ch.id }}" {% if settings.voice_log_channel_id == ch.id %}selected{% endif %}>#{{ ch.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <!-- Member Logs -->
+                <div>
+                    <label class="block text-xs font-semibold uppercase text-gray-400 mb-2">👥 Member Logs (Joins/Leaves + Age)</label>
+                    <select name="member_log_channel_id" class="w-full bg-discord-dark border border-gray-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-discord-blurple">
+                        <option value="0">Select a channel...</option>
+                        {% for ch in channels %}
+                        <option value="{{ ch.id }}" {% if settings.member_log_channel_id == ch.id %}selected{% endif %}>#{{ ch.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <!-- Mod Logs -->
+                <div>
+                    <label class="block text-xs font-semibold uppercase text-gray-400 mb-2">🔨 Mod Logs (Bans/Kicks/Timeouts + Reasons)</label>
+                    <select name="mod_log_channel_id" class="w-full bg-discord-dark border border-gray-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-discord-blurple">
+                        <option value="0">Select a channel...</option>
+                        {% for ch in channels %}
+                        <option value="{{ ch.id }}" {% if settings.mod_log_channel_id == ch.id %}selected{% endif %}>#{{ ch.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <!-- Server Logs -->
+                <div>
+                    <label class="block text-xs font-semibold uppercase text-gray-400 mb-2">📁 Server Logs (Channel/Role Changes)</label>
+                    <select name="server_log_channel_id" class="w-full bg-discord-dark border border-gray-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-discord-blurple">
+                        <option value="0">Select a channel...</option>
+                        {% for ch in channels %}
+                        <option value="{{ ch.id }}" {% if settings.server_log_channel_id == ch.id %}selected{% endif %}>#{{ ch.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+
+            <div class="pt-4 flex items-center justify-between border-t border-gray-800">
+                <span id="logSaveStatus" class="text-xs text-discord-green font-medium"></span>
+                <button type="submit" class="bg-discord-blurple hover:bg-indigo-600 text-white font-semibold text-sm px-6 py-2.5 rounded-xl transition shadow">
+                    Save Log Channels
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- TAB 3: Operations & Containment -->
+<div id="content-ops" class="space-y-6 hidden">
+    <!-- Lockdown Panel -->
+    <div class="bg-discord-card border border-gray-800 rounded-2xl p-6">
+        <h3 class="text-xl font-bold text-white mb-2">Emergency Server Lockdown</h3>
+        <p class="text-gray-400 text-sm mb-6">
+            Suspends @everyone Send Messages permissions in public channels with auto-expiration to freeze chat during massive raids.
+        </p>
+
+        <div class="flex flex-col sm:flex-row gap-4 items-center">
+            <select id="lockdownDuration" class="bg-discord-dark border border-gray-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none">
+                <option value="15">15 Minutes (Auto-expiring)</option>
+                <option value="30">30 Minutes</option>
+                <option value="60">1 Hour</option>
+                <option value="120">2 Hours</option>
+            </select>
+            <input type="text" id="lockdownReason" placeholder="Reason for lockdown (e.g. Mass Bot Attack)" 
+                   class="bg-discord-dark border border-gray-700 rounded-xl px-4 py-2.5 text-sm text-white flex-grow focus:outline-none focus:border-discord-blurple">
+            <button onclick="triggerLockdown()" class="w-full sm:w-auto bg-discord-red hover:bg-red-700 text-white font-semibold text-sm px-6 py-2.5 rounded-xl transition shadow">
+                Trigger Lockdown
+            </button>
+            <button onclick="triggerUnlock()" class="w-full sm:w-auto bg-gray-700 hover:bg-gray-600 text-gray-200 font-semibold text-sm px-6 py-2.5 rounded-xl transition">
+                Lift Lockdown
+            </button>
+        </div>
+        <div id="lockdownStatus" class="mt-3 text-xs font-medium"></div>
+    </div>
+
+    <!-- Raid Purge Panel -->
+    <div class="bg-discord-card border border-gray-800 rounded-2xl p-6">
+        <h3 class="text-xl font-bold text-white mb-2">1-Click Raid Wave Purge</h3>
+        <p class="text-gray-400 text-sm mb-6">
+            Instantly kicks or bans accounts that joined during an ongoing raid wave who possess 0 level/staff roles.
+        </p>
+        <div class="flex flex-col sm:flex-row gap-4 items-center">
+            <select id="purgeMinutes" class="bg-discord-dark border border-gray-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none">
+                <option value="10">Joined within last 10 minutes</option>
+                <option value="15" selected>Joined within last 15 minutes</option>
+                <option value="30">Joined within last 30 minutes</option>
+                <option value="60">Joined within last 60 minutes</option>
+            </select>
+            <select id="purgeAction" class="bg-discord-dark border border-gray-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none">
+                <option value="kick">Kick from Server</option>
+                <option value="ban">Permanently Ban</option>
+            </select>
+            <button onclick="triggerRaidPurge()" class="w-full sm:w-auto bg-amber-600 hover:bg-amber-700 text-white font-semibold text-sm px-6 py-2.5 rounded-xl transition shadow">
+                Execute Raid Purge
+            </button>
+        </div>
+        <div id="purgeStatus" class="mt-3 text-xs font-medium"></div>
+    </div>
+</div>
+
+<!-- TAB 4: Live Incident Audit Logs -->
+<div id="content-audit" class="space-y-6 hidden">
+    <div class="bg-discord-card border border-gray-800 rounded-2xl p-6 overflow-hidden">
+        <div class="flex justify-between items-center mb-6">
+            <div>
+                <h3 class="text-xl font-bold text-white mb-1">Live Incident & Security Audit Log</h3>
+                <p class="text-gray-400 text-xs">Cryptographically secured with SHA-256 evidence hashing for member privacy.</p>
+            </div>
+            <button onclick="loadIncidents()" class="text-xs text-discord-blurple hover:underline font-semibold flex items-center space-x-1">
+                <span>Refresh Logs</span>
+                <span>🔄</span>
+            </button>
+        </div>
+
+        <div class="overflow-x-auto">
+            <table class="w-full text-left text-xs">
+                <thead class="bg-discord-dark text-gray-400 uppercase text-[10px] tracking-wider border-b border-gray-800">
+                    <tr>
+                        <th class="py-3 px-4">Time (UTC)</th>
+                        <th class="py-3 px-4">User</th>
+                        <th class="py-3 px-4">Rule Triggered</th>
+                        <th class="py-3 px-4">Confidence</th>
+                        <th class="py-3 px-4">Action Taken</th>
+                        <th class="py-3 px-4">Status</th>
+                    </tr>
+                </thead>
+                <tbody id="incidentsTableBody" class="divide-y divide-gray-800 text-gray-300">
+                    {% for inc in incidents %}
+                    <tr class="hover:bg-discord-hover/50 transition">
+                        <td class="py-3 px-4 font-mono text-[11px] text-gray-400">{{ inc.timestamp[:19].replace('T', ' ') }}</td>
+                        <td class="py-3 px-4 font-medium text-white">{{ inc.username }} <span class="text-gray-500 text-[10px]">({{ inc.user_id }})</span></td>
+                        <td class="py-3 px-4 font-semibold text-amber-300">{{ inc.rule_triggered }}</td>
+                        <td class="py-3 px-4 text-gray-400">{{ inc.confidence }}</td>
+                        <td class="py-3 px-4 text-gray-300">{{ inc.action_taken }}</td>
+                        <td class="py-3 px-4">
+                            <span class="px-2 py-0.5 rounded text-[10px] font-bold {% if inc.status == 'OPEN' %}bg-amber-500/20 text-amber-300{% elif inc.status == 'DISMISSED' %}bg-gray-700 text-gray-300{% else %}bg-discord-green/20 text-discord-green{% endif %}">
+                                {{ inc.status }}
+                            </span>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                    {% if not incidents %}
+                    <tr>
+                        <td colspan="6" class="text-center py-8 text-gray-500">No security incidents recorded yet. Clean server!</td>
+                    </tr>
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script>
+const guildId = "{{ guild.id }}";
+
+function switchTab(tab) {
+    ['gates', 'logs', 'ops', 'audit'].forEach(t => {
+        document.getElementById(`content-${t}`).classList.add('hidden');
+        document.getElementById(`tab-${t}`).classList.remove('text-discord-blurple', 'border-b-2', 'border-discord-blurple');
+        document.getElementById(`tab-${t}`).classList.add('text-gray-400');
+    });
+    document.getElementById(`content-${tab}`).classList.remove('hidden');
+    document.getElementById(`tab-${tab}`).classList.add('text-discord-blurple', 'border-b-2', 'border-discord-blurple');
+    document.getElementById(`tab-${tab}`).classList.remove('text-gray-400');
+}
+
+async function toggleDryRun() {
+    const res = await fetch(`/api/guild/${guildId}/dry_run`, { method: 'POST' });
+    const data = await res.json();
+    if (data.success) {
+        location.reload();
+    }
+}
+
+async function triggerAutoSetup() {
+    const btn = document.getElementById('autoSetupBtn');
+    btn.disabled = true;
+    btn.innerText = 'Creating Staff Suite...';
+    try {
+        const res = await fetch(`/api/guild/${guildId}/auto_setup`, { method: 'POST' });
+        const data = await res.json();
+        if (data.success) {
+            alert('🎉 ' + data.message);
+            location.reload();
+        } else {
+            alert('❌ ' + data.error);
+            btn.disabled = false;
+            btn.innerText = 'Create Staff Suite ✨';
+        }
+    } catch (e) {
+        alert('❌ Error running auto setup: ' + e);
+        btn.disabled = false;
+        btn.innerText = 'Create Staff Suite ✨';
+    }
+}
+
+async function saveRoleGates(e) {
+    e.preventDefault();
+    const formData = new FormData(e.target);
+    const body = Object.fromEntries(formData.entries());
+    const res = await fetch(`/api/guild/${guildId}/roles`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+    });
+    const data = await res.json();
+    const st = document.getElementById('gateSaveStatus');
+    if (data.success) {
+        st.innerText = '✅ Level gates updated successfully!';
+        setTimeout(() => st.innerText = '', 3000);
+    } else {
+        st.innerText = '❌ Failed to save: ' + (data.error || 'Unknown error');
+    }
+}
+
+async function saveLogChannels(e) {
+    e.preventDefault();
+    const formData = new FormData(e.target);
+    const body = Object.fromEntries(formData.entries());
+    const res = await fetch(`/api/guild/${guildId}/logs`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+    });
+    const data = await res.json();
+    const st = document.getElementById('logSaveStatus');
+    if (data.success) {
+        st.innerText = '✅ Log channels updated successfully!';
+        setTimeout(() => st.innerText = '', 3000);
+    } else {
+        st.innerText = '❌ Failed to save: ' + (data.error || 'Unknown error');
+    }
+}
+
+async function triggerLockdown() {
+    const duration = document.getElementById('lockdownDuration').value;
+    const reason = document.getElementById('lockdownReason').value || 'Emergency Web Dashboard Lockdown';
+    const res = await fetch(`/api/guild/${guildId}/lockdown`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ duration: parseInt(duration), reason })
+    });
+    const data = await res.json();
+    const st = document.getElementById('lockdownStatus');
+    st.innerText = data.success ? '🔒 ' + data.message : '❌ ' + data.error;
+}
+
+async function triggerUnlock() {
+    const res = await fetch(`/api/guild/${guildId}/unlock`, { method: 'POST' });
+    const data = await res.json();
+    const st = document.getElementById('lockdownStatus');
+    st.innerText = data.success ? '🔓 ' + data.message : 'ℹ️ ' + data.error;
+}
+
+async function triggerRaidPurge() {
+    const minutes = document.getElementById('purgeMinutes').value;
+    const action = document.getElementById('purgeAction').value;
+    if (!confirm(`Are you sure you want to ${action.toUpperCase()} all raid accounts with 0 roles that joined in the last ${minutes} minutes?`)) {
+        return;
+    }
+    const res = await fetch(`/api/guild/${guildId}/purge_raid`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ within_minutes: parseInt(minutes), action })
+    });
+    const data = await res.json();
+    const st = document.getElementById('purgeStatus');
+    st.innerText = data.success ? '🧹 ' + data.message : '❌ ' + data.error;
+}
+
+async function loadIncidents() {
+    const res = await fetch(`/api/guild/${guildId}/incidents`);
+    const data = await res.json();
+    const tbody = document.getElementById('incidentsTableBody');
+    if (data.incidents && data.incidents.length > 0) {
+        tbody.innerHTML = data.incidents.map(inc => `
+            <tr class="hover:bg-discord-hover/50 transition">
+                <td class="py-3 px-4 font-mono text-[11px] text-gray-400">${inc.timestamp.substring(0, 19).replace('T', ' ')}</td>
+                <td class="py-3 px-4 font-medium text-white">${inc.username} <span class="text-gray-500 text-[10px]">(${inc.user_id})</span></td>
+                <td class="py-3 px-4 font-semibold text-amber-300">${inc.rule_triggered}</td>
+                <td class="py-3 px-4 text-gray-400">${inc.confidence}</td>
+                <td class="py-3 px-4 text-gray-300">${inc.action_taken}</td>
+                <td class="py-3 px-4">
+                    <span class="px-2 py-0.5 rounded text-[10px] font-bold ${inc.status === 'OPEN' ? 'bg-amber-500/20 text-amber-300' : 'bg-discord-green/20 text-discord-green'}">
+                        ${inc.status}
+                    </span>
+                </td>
+            </tr>
+        `).join('');
+    }
+}
+</script>

@@ -112,7 +112,37 @@ A security bot for Discord built with Python 3.11+ and `discord.py`. Designed to
    GUILD_ID=your_test_server_id_optional
    OWNER_ID=your_discord_user_id_optional
    HEALTH_PORT=8080
+
+   # Web Dashboard & Discord OAuth2
+   CLIENT_ID=your_discord_application_client_id
+   CLIENT_SECRET=your_discord_application_client_secret
+   DASHBOARD_URL=http://localhost:8080
+   SESSION_SECRET=replace_with_a_secure_random_string_for_production
    ```
+3. In the **Discord Developer Portal** > **OAuth2** > **Redirects**, add:
+   ```
+   http://localhost:8080/auth/callback
+   ```
+   *(or `https://your-domain.com/auth/callback` when hosted online)*.
+
+---
+
+## 🌐 Web Dashboard & Online Control Center
+
+The bot includes a built-in modern web dashboard that runs directly on `HEALTH_PORT` (port 8080 by default):
+
+* **Discord OAuth2 Login**: Securely authenticate with your Discord account via HMAC-signed session cookies.
+* **Server Selector**: Automatically filters and displays only servers where you have **Administrator** or **Manage Server** permissions.
+* **Live Server Synchronization**:
+  * **Level Role Gates**: Adjust progressive trust required roles for Links, Media/GIFs, Voice Mic, Archives, and Invites directly in the browser. Changes take effect on the server immediately.
+  * **Dedicated Log Channels**: Rebind chat, voice, member, mod, and server logs on the fly.
+  * **Operational Mode Toggle**: 1-click toggle between **Dry-Run (Alerts Only)** and **Active Enforcement**.
+  * **1-Click Staff Suite Setup**: Click "Create Staff Suite" on the web to spawn the themed `＝＝＝𓆩『  𝗕𝗘𝗛𝗜𝗡𝗗 𝗧𝗛𝗘 𝗦𝗖𝗘𝗡𝗘𝗦  』𓆪＝＝＝` category and all channels on Discord!
+  * **Operations & Containment**: Trigger emergency server lockdowns or 1-click raid wave purges with live progress.
+  * **Live Incident Audit Table**: Real-time audit log of security threats with cryptographic SHA-256 evidence hashing.
+* **Legal & Compliance**:
+  * `/terms`: Comprehensive, formal Terms of Service.
+  * `/privacy`: Privacy Policy detailing ephemeral 60s memory TTL, zero message logging, and daily pruning.
 3. Edit `config.yaml` to customize your level role names and thresholds:
    ```yaml
    progressive_trust:

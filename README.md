@@ -159,10 +159,10 @@ python -m src.bot
 | Command | Description |
 | :--- | :--- |
 | `/help` | Detailed, beginner-friendly guide with interactive topic dropdown. |
+| `/security auto_setup` | **1-Click Master Setup**: Creates private `🛡️ SECURITY & AUDIT SUITE` category with alert channel and all 5 log channels automatically! |
 | `/security set_role <gate> <role>` | Select which level role unlocks a permission (`links`, `media`, `mic`, `archives`, `invites`). |
 | `/security set_alert_channel <channel>` | Select the channel where raid cards and security alerts are posted. |
 | `/security set_log_channel <category> <channel>` | Assign dedicated channels for `chat`, `voice`, `member`, `mod`, and `server` logs. |
-| `/security setup_all_logs` | Auto-creates a private `📑 LOGS` category with all 5 log channels in 1 click! |
 | `/security setup` | View current security configuration, level roles, and log channels. |
 | `/security status` | Display active mode, latency, level gate rules, and health. |
 | `/security toggle_dry_run` | Toggle between Dry-Run (Alert Only) and Active Enforcement. |

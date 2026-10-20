@@ -10,10 +10,11 @@ HELP_PAGES = {
         "title": "🚀 3-Step Setup Guide (Quickstart)",
         "color": discord.Color.blue(),
         "description": (
-            "Welcome to **Antigravity Security**! In just 2 minutes, your server will be fully protected from join raids, scam links, and mic spam.\n\n"
-            "### Step 1: Set Your Moderator Alert Channel\n"
-            "Choose where you want raid alerts and scam reports to be sent:\n"
-            "`/security set_alert_channel channel:#mod-logs`\n\n"
+            "Welcome to **Antigravity Security**! In just 1 click, your server will be fully protected from join raids, scam links, and mic spam.\n\n"
+            "### ⚡ Recommended: 1-Click Auto Setup\n"
+            "Just type this single command:\n"
+            "`/security auto_setup`\n"
+            "The bot will automatically create a private **`🛡️ SECURITY & AUDIT SUITE`** category, create `#🚨-security-alerts` and all 5 log channels, and bind them all instantly!\n\n"
             "### Step 2: Connect Your Level Roles\n"
             "Select which level roles unlock links, GIFs, and voice channel mics:\n"
             "• `/security set_role gate:links role:@YourLevelRole` *(e.g. Level 5)*\n"
@@ -119,8 +120,11 @@ HELP_PAGES = {
         "color": discord.Color.teal(),
         "description": (
             "### Setup & Configuration\n"
+            "• `/security auto_setup` — 1-Click: Creates private category with alerts + all 5 log channels and binds them instantly!\n"
             "• `/security set_role <gate> <role>` — Connect a level role to a security gate (`links`, `media`, `mic`, `archives`, `invites`).\n"
             "• `/security set_alert_channel <channel>` — Set the channel for mod alerts and raid cards.\n"
+            "• `/security set_log_channel <category> <channel>` — Assign dedicated channel for specific log category.\n"
+            "• `/security setup` — View current security configuration, level roles, and log channels.\n"
             "• `/security status` — Check bot health, active rules, and configured roles.\n"
             "• `/security toggle_dry_run` — Switch between Alert-Only (Testing) and Active Enforcement.\n\n"
             "### Moderation & Containment\n"

@@ -283,6 +283,95 @@ class SecurityAdmin(commands.GroupCog, name="security"):
         embed.set_footer(text=f"Configured by {interaction.user}")
         await interaction.response.send_message(embed=embed)
 
+    @app_commands.command(name="auto_setup", description="[Admins Only] 1-Click Setup: Automatically creates and binds all security and log channels.")
+    async def cmd_auto_setup(self, interaction: discord.Interaction):
+        """Creates a private security category with alerts and all 5 log channels in 1 click."""
+        if not self._check_mod(interaction):
+            await interaction.response.send_message("❌ Moderator permissions required.", ephemeral=True)
+            return
+
+        guild = interaction.guild
+        me = guild.me
+        if not me.guild_permissions.manage_channels:
+            await interaction.response.send_message("❌ Bot lacks the **'Manage Channels'** permission to create channels for you.", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True)
+
+        # Overwrites: visible only to Admins/Mods and the bot
+        overwrites = {
+            guild.default_role: discord.PermissionOverwrite(read_messages=False, send_messages=False),
+            me: discord.PermissionOverwrite(read_messages=True, send_messages=True, embed_links=True, manage_messages=True)
+        }
+
+        try:
+            category = await guild.create_category("🛡️ SECURITY & AUDIT SUITE", overwrites=overwrites, reason="Automated security suite setup")
+
+            channel_defs = [
+                ("🚨-security-alerts", "alert", "Primary security alerts, raid warnings, phishing catches, and mod review action cards"),
+                ("💬-chat-logs", "chat", "Message edits & deletions with attachment filenames"),
+                ("🔊-voice-logs", "voice", "Voice channel joins, leaves, switches & server mutes"),
+                ("👥-member-logs", "member", "Member joins with account age warnings (<24h) & leaves"),
+                ("🔨-mod-logs", "mod", "Bans, kicks, timeouts, who did what to whom + reasons"),
+                ("📁-server-logs", "server", "Channel and role creations/deletions")
+            ]
+
+            created_channels = {}
+            for name, ch_type, topic in channel_defs:
+                ch = await guild.create_text_channel(name, category=category, topic=topic, reason="Automated security suite setup")
+                created_channels[ch_type] = ch
+
+                # Bind to database and cache
+                if guild.id not in bot_config.guild_settings_cache:
+                    bot_config.guild_settings_cache[guild.id] = {}
+
+                if ch_type == "alert":
+                    await db.set_alert_channel(guild.id, ch.id)
+                    bot_config.guild_settings_cache[guild.id]["alert_channel_id"] = ch.id
+                else:
+                    await db.set_log_channel(guild.id, ch_type, ch.id)
+                    bot_config.guild_settings_cache[guild.id][f"{ch_type}_log_channel_id"] = ch.id
+
+            # Post Welcome / Orientation card into the new security alerts channel
+            alerts_ch = created_channels["alert"]
+            welcome_embed = discord.Embed(
+                title="🛡️ Antigravity Security Suite Initialized!",
+                color=discord.Color.green(),
+                description=(
+                    f"Welcome to your private **Security & Audit Center** on **{guild.name}**!\n\n"
+                    "All security alerts, raid warnings, and logging channels are now active and bound to this server.\n\n"
+                    "### 📁 Your Channels in This Suite:\n"
+                    f"• {created_channels['alert'].mention} — Live raid warnings, phishing links, and 1-click mod action cards\n"
+                    f"• {created_channels['chat'].mention} — Message edits and deletions with before/after comparisons\n"
+                    f"• {created_channels['voice'].mention} — VC joins, leaves, and channel transitions\n"
+                    f"• {created_channels['member'].mention} — Joins with **New Account (<24h)** badges & leave logs\n"
+                    f"• {created_channels['mod'].mention} — Bans, kicks, and timeouts with moderator and reason details\n"
+                    f"• {created_channels['server'].mention} — Channel & role creation/deletion tracking\n\n"
+                    "### 🚀 Next Quick Steps:\n"
+                    "1. Connect your level roles: `/security set_role gate:links role:@YourRole`\n"
+                    "2. Check status: `/security status`\n"
+                    "3. When ready for active punishment: `/security toggle_dry_run`"
+                )
+            )
+            welcome_embed.set_footer(text="🔒 Hidden from regular members • Visible only to Staff and Security Bot")
+            await alerts_ch.send(embed=welcome_embed)
+
+            # Reply to the admin who ran the command
+            channels_list_str = "\n".join([f"• {c.mention} — `{c.topic}`" for c in created_channels.values()])
+            admin_reply_embed = discord.Embed(
+                title="🎉 1-Click Setup Complete!",
+                color=discord.Color.green(),
+                description=(
+                    f"Successfully created private category **{category.name}** with all 6 channels configured:\n\n"
+                    f"{channels_list_str}\n\n"
+                    f"✅ **All 6 channels are already connected to the bot's database.** No manual channel binding is needed!"
+                )
+            )
+            await interaction.followup.send(embed=admin_reply_embed, ephemeral=True)
+        except Exception as e:
+            logger.error("Failed during auto_setup: %s", e)
+            await interaction.followup.send(f"❌ Error during auto setup: {e}", ephemeral=True)
+
     @app_commands.command(name="setup_all_logs", description="[Admins Only] Automatically creates a private '📑 LOGS' category with all 5 log channels.")
     async def cmd_setup_all_logs(self, interaction: discord.Interaction):
         if not self._check_mod(interaction):

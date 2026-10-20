@@ -148,37 +148,28 @@ class SecurityBot(commands.Bot):
                 synced = await self.tree.sync(guild=guild)
                 logger.info("Synchronized %d slash commands directly to target guild %d", len(synced), bot_config.guild_id)
             else:
-                # Sync globally
-                synced = await self.tree.sync()
-                logger.info("Synchronized %d global slash commands (propagation may take up to 1h)", len(synced))
-
-                # Also sync directly to all currently connected guilds for INSTANT command visibility
+                # 1. Clear any old guild-specific duplicate commands so servers have 1 clean copy
                 for g in self.guilds:
                     try:
-                        self.tree.copy_global_to(guild=g)
-                        guild_synced = await self.tree.sync(guild=g)
-                        logger.info("Instantly synchronized %d commands to server '%s' (%d)", len(guild_synced), g.name, g.id)
+                        self.tree.clear_commands(guild=g)
+                        await self.tree.sync(guild=g)
                     except Exception as ge:
-                        logger.warning("Could not sync directly to server %d: %s", g.id, ge)
+                        logger.warning("Could not clear guild commands for %d: %s", g.id, ge)
+
+                # 2. Sync global commands cleanly
+                synced = await self.tree.sync()
+                logger.info("Synchronized %d global slash commands (no guild duplicates)", len(synced))
         except Exception as e:
             logger.error("Failed to sync slash commands: %s", e)
-
-    async def on_guild_join(self, guild: discord.Guild):
-        """Instantly register slash commands whenever the bot is invited to a new server."""
-        try:
-            self.tree.copy_global_to(guild=guild)
-            synced = await self.tree.sync(guild=guild)
-            logger.info("Instantly synchronized %d commands to newly joined server '%s' (%d)", len(synced), guild.name, guild.id)
-        except Exception as e:
-            logger.error("Failed to sync slash commands to new server %d: %s", guild.id, e)
 
     async def on_message(self, message: discord.Message):
         """Processes message commands like !sync, then forwards to cogs."""
         if message.author.bot:
             return
 
-        # Emergency !sync command for owners and admins
-        if message.content.strip() == "!sync":
+        cmd_trigger = message.content.strip().lower()
+        # Clean duplicates / sync command for owners and admins
+        if cmd_trigger in ("!sync", "!cleardupes", "!clean"):
             if not message.guild:
                 return
             member = message.author
@@ -187,22 +178,27 @@ class SecurityBot(commands.Bot):
                 (isinstance(member, discord.Member) and member.guild_permissions.administrator)
             )
             if not is_admin:
-                await message.channel.send("❌ Only the **Server Owner** or members with **Administrator** permission can run `!sync`.")
+                await message.channel.send("❌ Only the **Server Owner** or members with **Administrator** permission can run this command.")
                 return
 
-            status_msg = await message.channel.send("⏳ **Synchronizing slash commands directly to this server...**")
+            status_msg = await message.channel.send("🧹 **Cleaning up duplicate commands and refreshing global commands...**")
             try:
-                self.tree.copy_global_to(guild=message.guild)
-                synced = await self.tree.sync(guild=message.guild)
+                # 1. Wipe guild-scoped duplicates from this specific server
+                self.tree.clear_commands(guild=message.guild)
+                await self.tree.sync(guild=message.guild)
+
+                # 2. Ensure global commands are synced
+                synced = await self.tree.sync()
                 await status_msg.edit(
                     content=(
-                        f"✅ **Synchronized {len(synced)} slash commands directly to `{message.guild.name}`!**\n"
-                        f"They should appear instantly when typing `/`.\n\n"
-                        f"💡 *If you still don't see them, press `Ctrl+R` to reload Discord, or ensure the bot was invited with the `applications.commands` scope.*"
+                        f"✅ **Duplicate commands deleted successfully!**\n"
+                        f"Removed the guild-scoped copies and preserved the single clean set of **{len(synced)}** global commands.\n\n"
+                        f"🔄 **To see the clean list right away**:\n"
+                        f"Press **`Ctrl + R`** on PC (or completely close and re-open the Discord mobile app) so your Discord client clears its cached command list!"
                     )
                 )
             except Exception as e:
-                await status_msg.edit(content=f"❌ Failed to sync slash commands: `{e}`")
+                await status_msg.edit(content=f"❌ Failed to clear duplicate commands: `{e}`")
             return
 
         # Process any other standard prefix commands

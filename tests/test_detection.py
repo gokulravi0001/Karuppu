@@ -288,6 +288,21 @@ class TestLoggingSystemConfig(unittest.TestCase):
         self.assertEqual(bot_config.get_log_channel_id(9999, "chat"), 101)
         self.assertEqual(bot_config.get_log_channel_id(9999, "voice"), 102)
         self.assertEqual(bot_config.get_log_channel_id(9999, "member"), 103)
+
+    def test_unmute_authority_role_permission(self):
+        from src.config import bot_config
+        bot_config.guild_settings_cache[2222] = {
+            "unmute_role_id": 7777,
+            "unmute_role_name": "Voice Moderator"
+        }
+
+        mod_user = MockMember(roles=[MockRole("Voice Moderator", 7777)])
+        has_perm = any(r.id == 7777 for r in mod_user.roles)
+        self.assertTrue(has_perm)
+
+        regular_user = MockMember(roles=[MockRole("Member", 1111)])
+        has_perm_reg = any(r.id == 7777 for r in regular_user.roles)
+        self.assertFalse(has_perm_reg)
         self.assertEqual(bot_config.get_log_channel_id(9999, "mod"), 104)
         self.assertEqual(bot_config.get_log_channel_id(9999, "server"), 105)
 

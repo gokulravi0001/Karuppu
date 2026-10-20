@@ -223,6 +223,138 @@ class SecurityAdmin(commands.GroupCog, name="security"):
         embed.set_footer(text=f"Updated by {interaction.user}")
         await interaction.response.send_message(embed=embed)
 
+    def _check_can_unmute(self, interaction: discord.Interaction) -> tuple[bool, Optional[str]]:
+        """Verifies if the user is authorized to reverse server mutes."""
+        if self._check_owner(interaction):
+            return True, None
+        user = interaction.user
+        if isinstance(user, discord.Member) and user.guild_permissions.administrator:
+            return True, None
+
+        guild_settings = bot_config.guild_settings_cache.get(interaction.guild.id, {})
+        allowed_role_id = guild_settings.get("unmute_role_id")
+        allowed_role_name = guild_settings.get("unmute_role_name", "Authorized Role")
+
+        if allowed_role_id and isinstance(user, discord.Member):
+            if any(r.id == allowed_role_id for r in user.roles):
+                return True, None
+
+        return False, allowed_role_name
+
+    @app_commands.command(
+        name="set_unmute_role",
+        description="[Owner Only] Select which role is authorized to reverse server mutes."
+    )
+    @app_commands.describe(role="The role authorized to reverse server mutes")
+    async def cmd_set_unmute_role(self, interaction: discord.Interaction, role: discord.Role):
+        if not self._check_owner(interaction):
+            await interaction.response.send_message("❌ **Access Denied**: Only the Server Owner can configure the unmute role.", ephemeral=True)
+            return
+
+        guild_id = interaction.guild.id
+        await db.set_unmute_role(guild_id, role.id, role.name)
+
+        if guild_id not in bot_config.guild_settings_cache:
+            bot_config.guild_settings_cache[guild_id] = {}
+        bot_config.guild_settings_cache[guild_id]["unmute_role_id"] = role.id
+        bot_config.guild_settings_cache[guild_id]["unmute_role_name"] = role.name
+
+        embed = discord.Embed(
+            title="✅ Unmute Authority Role Configured",
+            color=discord.Color.green(),
+            description=(
+                f"**Authorized Role:** {role.mention} (`{role.name}`)\n\n"
+                f"Members with **{role.name}** (as well as Server Owner & Administrators) are now authorized to use `/security unmute` to restore voice access if a bot action was incorrect."
+            )
+        )
+        embed.set_footer(text=f"Configured by Server Owner ({interaction.user})")
+        await interaction.response.send_message(embed=embed)
+
+    @app_commands.command(
+        name="unmute",
+        description="Reverse a server mute and restore voice permissions for a member."
+    )
+    @app_commands.describe(
+        member="The member whose server mute should be reversed",
+        reason="Reason for reversing the mute (optional)"
+    )
+    async def cmd_unmute(
+        self,
+        interaction: discord.Interaction,
+        member: discord.Member,
+        reason: Optional[str] = "False positive / Decision reversed by authorized staff"
+    ):
+        can_run, req_role = self._check_can_unmute(interaction)
+        if not can_run:
+            msg = f"❌ **Access Denied**: Only members with the **@{req_role}** role (selected by the Server Owner) or Administrators can reverse server mutes." if req_role else "❌ **Access Denied**: Only the Server Owner or designated roles can reverse server mutes."
+            await interaction.response.send_message(msg, ephemeral=True)
+            return
+
+        guild = interaction.guild
+        me = guild.me
+        if not me.guild_permissions.mute_members:
+            await interaction.response.send_message("❌ Bot lacks the **'Mute Members'** permission to edit voice states.", ephemeral=True)
+            return
+
+        audit_reason = f"Unmuted by {interaction.user}: {reason}"
+        changes_applied = []
+
+        # 1. Reverse server mute if active
+        if member.voice and member.voice.mute:
+            try:
+                await member.edit(mute=False, reason=audit_reason)
+                changes_applied.append("Voice Server-Mute removed")
+            except Exception as e:
+                logger.warning("Failed to lift voice mute on %s: %s", member, e)
+
+        # 2. Lift timeout if active
+        if member.is_timed_out():
+            try:
+                await member.timeout(None, reason=audit_reason)
+                changes_applied.append("Temporary Timeout lifted")
+            except Exception as e:
+                logger.warning("Failed to lift timeout on %s: %s", member, e)
+
+        if not changes_applied:
+            # If not currently in voice or timed out, attempt voice edit anyway in case state was cached
+            try:
+                await member.edit(mute=False, reason=audit_reason)
+                changes_applied.append("Voice Server-Mute cleared")
+            except Exception:
+                pass
+
+        if not changes_applied:
+            await interaction.response.send_message(
+                f"ℹ️ {member.mention} is not currently server-muted or timed out.",
+                ephemeral=True
+            )
+            return
+
+        # Record to audit log database
+        await db.log_incident(
+            guild_id=guild.id,
+            user_id=member.id,
+            username=str(member),
+            rule_triggered="Server Mute Reversal",
+            confidence="HIGH (Manual Staff Override)",
+            raw_evidence=f"Action by {interaction.user} ({interaction.user.id}) | Reason: {reason}",
+            action_taken=f"Reversed mute by {interaction.user}",
+            moderator_id=interaction.user.id
+        )
+
+        embed = discord.Embed(
+            title="🔊 Member Server Mute Reversed",
+            color=discord.Color.green(),
+            description=(
+                f"**Member:** {member.mention} (`{member.id}`)\n"
+                f"**Authorized Staff:** {interaction.user.mention}\n"
+                f"**Reason:** {reason}\n\n"
+                f"✅ **Actions Applied:** {', '.join(changes_applied)}"
+            )
+        )
+        embed.set_footer(text="Security override logged to audit database")
+        await interaction.response.send_message(embed=embed)
+
     @app_commands.command(name="set_alert_channel", description="[Admins Only] Select the channel where security alerts and mod cards are sent.")
     @app_commands.describe(channel="The channel for mod logs and raid alerts")
     async def cmd_set_alert_channel(self, interaction: discord.Interaction, channel: discord.TextChannel):
@@ -503,6 +635,9 @@ class SecurityAdmin(commands.GroupCog, name="security"):
             ),
             inline=False
         )
+        unmute_role_id = settings.get("unmute_role_id")
+        unmute_str = f"<@&{unmute_role_id}>" if unmute_role_id else "*None (Owner & Admins only)*"
+        embed.add_field(name="🔊 Reverse-Mute Authority Role", value=unmute_str, inline=False)
         embed.add_field(
             name="💡 Quick Tips",
             value=(

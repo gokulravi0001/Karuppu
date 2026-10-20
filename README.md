@@ -179,6 +179,7 @@ python -m src.bot
 ### Server Owner-Only Commands
 | Command | Description |
 | :--- | :--- |
+| `/security set_unmute_role <role>` | Authorize a specific role to reverse server mutes. |
 | `/security bypass add_role <role>` | Authorize a role to bypass all security gates. |
 | `/security bypass remove_role <role>` | Revoke a role's security bypass. |
 | `/security bypass add_user <user>` | Authorize a specific user to bypass all security gates. |
@@ -201,6 +202,7 @@ python -m src.bot
 ### Moderation & Containment
 | Command | Description |
 | :--- | :--- |
+| `/security unmute <member> [reason]` | Reverse server mute & timeout for a member (authorized roles only). |
 | `/security lockdown [duration] [reason]` | Lock public channels for N minutes (default 15m, auto-expiring). |
 | `/security unlock` | Manually lift an active lockdown immediately. |
 | `/security purge_raid [within_minutes] [require_no_roles] [action]` | Safe preview & 1-click purge of all accounts that joined during a raid wave. |

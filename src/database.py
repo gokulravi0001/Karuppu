@@ -85,6 +85,8 @@ class AuditDatabase:
                 ("member_log_channel_id", "INTEGER"),
                 ("mod_log_channel_id", "INTEGER"),
                 ("server_log_channel_id", "INTEGER"),
+                ("unmute_role_id", "INTEGER"),
+                ("unmute_role_name", "TEXT"),
             ]
             for col_name, col_type in log_cols:
                 try:
@@ -228,6 +230,18 @@ class AuditDatabase:
                 VALUES (?, ?)
                 ON CONFLICT(guild_id) DO UPDATE SET dry_run = excluded.dry_run;
             """, (guild_id, 1 if dry_run else 0))
+            await db.commit()
+
+    async def set_unmute_role(self, guild_id: int, role_id: int, role_name: str) -> None:
+        """Sets the owner-authorized role that is permitted to reverse server mutes."""
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute("""
+                INSERT INTO guild_settings (guild_id, unmute_role_id, unmute_role_name)
+                VALUES (?, ?, ?)
+                ON CONFLICT(guild_id) DO UPDATE SET
+                    unmute_role_id = excluded.unmute_role_id,
+                    unmute_role_name = excluded.unmute_role_name;
+            """, (guild_id, role_id, role_name))
             await db.commit()
 
     async def update_all_role_gates(self, guild_id: int, role_data: Dict[str, Any]) -> None:

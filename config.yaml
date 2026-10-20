@@ -89,17 +89,10 @@ phishing_detector:
     - "x.com"
     - "reddit.com"
 
-# VOICE CHANNEL & MIC PROTECTION
-# Protects against mic ear-rape/spam and unauthorized mic unmuting by low-level/raid accounts
+# VOICE CHANNEL PROTECTION
+# Protects against rapid VC connect/disconnect hopping and notification chime spam
 voice_protection:
   enabled: true
-  # Microphone gate: low-level accounts can listen, but must reach role to unmute
-  mic_gate:
-    enabled: true
-    required_role: "Guild Recruit" # Level 5: Role required to unmute microphone in VC
-    notify_user: true              # Sends a polite DM informing member of the unlock level
-    reminder_text: "🎙️ **Microphone access in voice channels unlocks at @{required_role} (Level 5)!** You can still listen in. Keep chatting in text channels to level up."
-
   # Voice channel hopping (notification connect/disconnect chime spam)
   vc_hopping:
     enabled: true

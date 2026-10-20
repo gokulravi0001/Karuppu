@@ -7,18 +7,17 @@ A security bot for Discord built with Python 3.11+ and `discord.py`. Designed to
 ## 🌟 Key Features
 
 1. **Progressive Trust (Tiered Permissions)**:
-   * Restricts high-risk interactions (sending links, GIFs, media files, mic in VC, archive uploads) until members earn your server's **Level Reward Roles**.
+   * Restricts high-risk interactions (sending links, GIFs, media files, archive uploads, invites) until members earn your server's **Level Reward Roles**.
    * **Smart Level Inheritance**: If a member levels up to higher ranks (e.g. `@Bronze Rank` or `@Gold Rank`), they automatically retain all previous perks even if your leveling bot removes earlier roles!
    * **Role Gating Defaults**:
-     * **Level 5 (`@Guild Recruit`)**: Unlocks external Links, Tenor/Giphy GIFs, Media Attachments, and Microphone access in Voice Channels.
+     * **Level 5 (`@Guild Recruit`)**: Unlocks external Links, Tenor/Giphy GIFs, and Media Attachments.
      * **Level 10 (`@Bronze Rank`)**: Unlocks `.zip` / `.rar` archive uploads and posting external Discord server invites.
    * Educates members with friendly, auto-deleting notices so channels stay clean.
 2. **Owner-Exclusive Bypass Control**:
    * **No automated role exemptions**: Only the **Server Owner** has authority to designate who or what bypasses security filters.
    * Slash commands for adding/removing bypass roles, users, and channels are strictly locked to the Server Owner (`guild.owner_id == ctx.author.id`).
-3. **Voice Channel & Mic Protection**:
-   * **Microphone Progressive Trust Gate**: Restricts unmuting microphones in VC until members reach `Level 3` (or configured level role). Low-level accounts can still join and listen, but cannot mic spam or ear-rape conversations.
-   * **VC Hopping / Notification Chime Spam**: Detects raid bots or users rapidly jumping between voice channels ($> 5$ transitions in 10s) to spam connect/disconnect sounds. Disconnects and temporarily times out the offender.
+3. **Voice Channel Anti-Hopping Protection**:
+   * **VC Hopping / Notification Chime Spam**: Detects raid bots or users rapidly jumping between voice channels (> 5 transitions in 10s) to spam connect/disconnect sounds. Disconnects and temporarily times out the offender.
 4. **Malicious Attachment & Executable Blocker**:
    * Blocks dangerous executables (`.exe`, `.scr`, `.bat`, `.cmd`, `.vbs`, `.msi`, `.iso`, `.jar`, `.apk`) and double extensions (`.png.exe`).
    * Gates `.zip` / `.rar` archive uploads behind `Level 5`.
@@ -134,7 +133,7 @@ The bot includes a built-in modern web dashboard that runs directly on `HEALTH_P
 * **Discord OAuth2 Login**: Securely authenticate with your Discord account via HMAC-signed session cookies.
 * **Server Selector**: Automatically filters and displays only servers where you have **Administrator** or **Manage Server** permissions.
 * **Live Server Synchronization**:
-  * **Level Role Gates**: Adjust progressive trust required roles for Links, Media/GIFs, Voice Mic, Archives, and Invites directly in the browser. Changes take effect on the server immediately.
+  * **Level Role Gates**: Adjust progressive trust required roles for Links, Media/GIFs, Archives, and Invites directly in the browser. Changes take effect on the server immediately.
   * **Dedicated Log Channels**: Rebind chat, voice, member, mod, and server logs on the fly.
   * **Operational Mode Toggle**: 1-click toggle between **Dry-Run (Alerts Only)** and **Active Enforcement**.
   * **1-Click Staff Suite Setup**: Click "Create Staff Suite" on the web to spawn the themed `＝＝＝𓆩『  𝗕𝗘𝗛𝗜𝗡𝗗 𝗧𝗛𝗘 𝗦𝗖𝗘𝗡𝗘𝗦  』𓆪＝＝＝` category and all channels on Discord!
@@ -192,7 +191,7 @@ python -m src.bot
 | :--- | :--- |
 | `/help` | Detailed, beginner-friendly guide with interactive topic dropdown. |
 | `/security auto_setup [allowed_role]` | **1-Click Staff Suite**: Creates private category `＝＝＝𓆩『  𝗕𝗘𝗛𝗜𝗡𝗗 𝗧𝗛𝗘 𝗦𝗖𝗘𝗡𝗘𝗦  』𓆪＝＝＝` with `🚨・𝗰𝗼𝗺𝗺𝗮𝗻𝗱-𝗰𝗲𝗻𝘁𝗲𝗿` & log channels! |
-| `/security set_role <gate> <role>` | Select which level role unlocks a permission (`links`, `media`, `mic`, `archives`, `invites`). |
+| `/security set_role <gate> <role>` | Select which level role unlocks a permission (`links`, `media`, `archives`, `invites`). |
 | `/security set_alert_channel <channel>` | Select the channel where raid cards and security alerts are posted. |
 | `/security set_log_channel <category> <channel>` | Assign dedicated channels for `chat`, `voice`, `member`, `mod`, and `server` logs. |
 | `/security setup` | View current security configuration, level roles, and log channels. |

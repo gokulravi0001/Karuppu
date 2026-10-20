@@ -16,10 +16,10 @@ HELP_PAGES = {
             "`/security auto_setup [allowed_role]`\n"
             "The bot will automatically create a private category **`＝＝＝𓆩『  𝗕𝗘𝗛𝗜𝗡𝗗 𝗧𝗛𝗘 𝗦𝗖𝗘𝗡𝗘𝗦  』𓆪＝＝＝`**, set up the **`🚨・𝗰𝗼𝗺𝗺𝗮𝗻𝗱-𝗰𝗲𝗻𝘁𝗲𝗿`** and all 5 log channels, and lock them so they are only visible to admins & allowed staff!\n\n"
             "### Step 2: Connect Your Level Roles\n"
-            "Select which level roles unlock links, GIFs, and voice channel mics:\n"
+            "Select which level roles unlock links, GIFs, and archives:\n"
             "• `/security set_role gate:links role:@YourLevelRole` *(e.g. Level 5)*\n"
             "• `/security set_role gate:media role:@YourLevelRole` *(e.g. Level 5)*\n"
-            "• `/security set_role gate:mic role:@YourLevelRole` *(e.g. Level 5)*\n\n"
+            "• `/security set_role gate:archives role:@YourLevelRole` *(e.g. Level 10)*\n\n"
             "### Step 3: Turn On Active Protection\n"
             "The bot starts in **Dry-Run Mode** (it alerts mods without punishing members so you can test).\n"
             "When you're ready for automatic protection, type:\n"
@@ -47,19 +47,14 @@ HELP_PAGES = {
         )
     },
     "voice_protection": {
-        "title": "🎙️ Voice Channel & Microphone Protection",
+        "title": "🔊 Voice Channel & Anti-Hopping Defense",
         "color": discord.Color.purple(),
         "description": (
             "Voice channel raids are one of the most disruptive attacks on Discord. Here is how the bot defends your VCs:\n\n"
-            "### 1. Microphone Gate (Anti-Ear Rape)\n"
-            "• New or low-level members can freely join voice channels and **listen** to the conversation.\n"
-            "• However, if they try to unmute their microphone before reaching your configured level role, the bot immediately server-mutes them.\n"
-            "• A polite private DM is sent explaining how to unlock voice permissions.\n\n"
-            "### 2. Anti-VC Hopping (Connect Sound Spam)\n"
+            "### Anti-VC Hopping (Connect Sound Spam)\n"
             "• Attackers often rapidly join and leave voice channels to blast everyone's headphones with Discord join/disconnect chimes.\n"
-            "• The bot detects rapid channel switching ($> 5$ switches in 10s), disconnects the user, and applies a 5-minute timeout.\n\n"
-            "Configure your voice role with:\n"
-            "`/security set_role gate:mic role:@YourRole`"
+            "• The bot detects rapid channel switching (> 5 switches in 10s), disconnects the user from voice, and applies a 5-minute timeout.\n"
+            "• Mod alert cards are dispatched to your log channel with quick Disconnect / Timeout action buttons."
         )
     },
     "raid_scam": {

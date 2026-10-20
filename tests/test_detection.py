@@ -129,17 +129,10 @@ class TestVoiceProtection(unittest.TestCase):
         self.assertEqual(len(events), 5)
         self.assertGreaterEqual(len(events), 5)  # Triggers VC hopping limit!
 
-    def test_mic_unmuted_state(self):
-        # A user who is self_mute=False and server mute=False is unmuted
-        self_mute = False
-        server_mute = False
-        is_unmuted = not self_mute and not server_mute
-        self.assertTrue(is_unmuted)
-
-        # When server muted, mic cannot transmit
-        server_mute = True
-        is_unmuted = not self_mute and not server_mute
-        self.assertFalse(is_unmuted)
+    def test_vc_hopping_under_threshold(self):
+        # 3 events in 10s should not trigger threshold of 5
+        events = deque([100.0, 102.0, 104.0])
+        self.assertLess(len(events), 5)
 
 
 class TestAttachmentSecurity(unittest.TestCase):

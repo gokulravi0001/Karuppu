@@ -84,17 +84,6 @@
                     </select>
                 </div>
 
-                <!-- Voice Mic Gate -->
-                <div>
-                    <label class="block text-xs font-semibold uppercase text-gray-400 mb-2">🎙️ Voice Channel Microphone Gate</label>
-                    <select name="mic_role_id" class="w-full bg-discord-dark border border-gray-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-discord-blurple">
-                        <option value="0">Default (Level 5: Guild Recruit)</option>
-                        {% for r in roles %}
-                        <option value="{{ r.id }}" {% if settings.mic_role_id == r.id %}selected{% endif %}>@{{ r.name }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-
                 <!-- ZIP Archives Gate -->
                 <div>
                     <label class="block text-xs font-semibold uppercase text-gray-400 mb-2">📦 ZIP & RAR Archive Uploads Gate</label>

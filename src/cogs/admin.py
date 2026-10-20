@@ -194,7 +194,6 @@ class SecurityAdmin(commands.GroupCog, name="security"):
     @app_commands.choices(gate=[
         app_commands.Choice(name="External Links & URLs (Link Gate)", value="links"),
         app_commands.Choice(name="GIFs & Media Attachments (Media Gate)", value="media"),
-        app_commands.Choice(name="Microphone in Voice Channels (VC Mic Gate)", value="mic"),
         app_commands.Choice(name="ZIP / RAR Archives (Archive Gate)", value="archives"),
         app_commands.Choice(name="Discord Server Invites (Invite Gate)", value="invites"),
     ])
@@ -488,7 +487,6 @@ class SecurityAdmin(commands.GroupCog, name="security"):
             value=(
                 f"• **External Links & URLs:** {_format_gate('links', 'Guild Recruit')}\n"
                 f"• **GIFs & Media:** {_format_gate('media', 'Guild Recruit')}\n"
-                f"• **Voice Channel Mic:** {_format_gate('mic', 'Guild Recruit')}\n"
                 f"• **ZIP / RAR Archives:** {_format_gate('archives', 'Bronze Rank')}\n"
                 f"• **Server Invites:** {_format_gate('invites', 'Bronze Rank')}"
             ),
@@ -684,16 +682,11 @@ class SecurityAdmin(commands.GroupCog, name="security"):
         embed.add_field(name="Bot Latency", value=f"`{round(self.bot.latency * 1000)}ms`", inline=True)
         embed.add_field(name="Guilds Monitored", value=f"`{len(self.bot.guilds)}`", inline=True)
 
-        # Progressive trust summary
-        voice_cfg = bot_config.raw_data.get("voice_protection", {})
-        mic_role = voice_cfg.get("mic_gate", {}).get("required_role", "Disabled")
-
         embed.add_field(
             name="Progressive Trust (Level Gates)",
             value=(
                 f"• **Links:** Requires `{link_role}`\n"
                 f"• **GIFs/Media:** Requires `{gif_role}`\n"
-                f"• **VC Microphone:** Requires `{mic_role}`\n"
                 f"• **Bypass Control:** Exclusively Server Owner"
             ),
             inline=False

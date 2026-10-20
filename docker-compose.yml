@@ -1,0 +1,19 @@
+services:
+  security-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: discord-security-bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+      - ./config.yaml:/app/config.yaml:ro
+    ports:
+      - "127.0.0.1:8080:8080" # Exposed to localhost for container healthcheck
+    security_opt:
+      - no-new-privileges:true
+    read_only: false
+    cap_drop:
+      - ALL

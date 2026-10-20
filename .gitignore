@@ -1,0 +1,30 @@
+# Secrets and environment variables
+.env
+.env.local
+.env.*.local
+
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+
+# Local databases and audit stores (protect member privacy & incidents)
+data/
+*.db
+*.sqlite3
+
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+
+# IDE and OS files
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db

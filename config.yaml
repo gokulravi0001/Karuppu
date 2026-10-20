@@ -1,0 +1,151 @@
+# Discord Security Bot Configuration
+# All detection thresholds and tiered permissions can be tuned here or via owner slash commands.
+
+general:
+  dry_run: true                   # Set to false to actively delete messages/timeout after testing
+  audit_retention_days: 30        # How long structured incident audit logs are kept in data/audit.db
+  log_level: "INFO"               # DEBUG, INFO, WARNING, ERROR
+
+# OWNER-CONTROLLED BYPASSES
+# Only the server owner can authorize bypasses. No automatic roles are assumed.
+owner_bypasses:
+  roles: []                       # Role IDs or exact names granted bypass by the owner
+  users: []                       # User IDs granted direct bypass by the owner
+  channels: []                    # Channel IDs where checks are ignored (e.g. staff channels)
+
+# PROGRESSIVE TRUST (TIERED LEVEL GATES)
+# Restricts high-risk interactions (links, GIFs, attachments) until members earn level roles.
+# If a member levels up to higher ranks (e.g. Bronze Rank, Iron Rank), they automatically retain all perks!
+progressive_trust:
+  enabled: true
+  
+  # Link gate: Blocks links from low-level members
+  link_gate:
+    enabled: true
+    required_role: "Guild Recruit" # Level 5: Role required to send URLs
+    delete_unauthorized: true      # Deletes message if user lacks role (respects dry_run)
+    feedback_seconds: 6            # Auto-deletes the reminder after N seconds
+    reminder_text: "🔒 **Links are unlocked at @{required_role} (Level 5)!** Keep chatting to level up and share links."
+
+  # GIF & Media gate: Blocks Tenor/Giphy GIFs and uploaded files
+  media_and_gif_gate:
+    enabled: true
+    required_role: "Guild Recruit" # Level 5: Role required to send GIFs/attachments
+    delete_unauthorized: true
+    feedback_seconds: 6
+    reminder_text: "🎨 **GIFs and media unlock at @{required_role} (Level 5)!** Keep chatting to earn media permissions."
+
+# ANTI-RAID DETECTION
+# Sliding-window velocity tracking for mass joins and suspicious account waves
+raid_detector:
+  enabled: true
+  window_seconds: 10              # Rolling time window to count joins
+  join_threshold: 5               # Triggers alert if >= 5 joins happen in 10s
+  new_account_age_hours: 24       # Accounts created < 24 hours ago are considered "new"
+  new_account_threshold: 3        # Triggers alert if >= 3 new accounts join in 15s
+  auto_lockdown_on_raid: false    # If true, auto-activates emergency lockdown; if false, prompts mod button
+  quarantine_role_name: "Quarantined"
+
+# SPAM & MASS MENTION DETECTION
+# Token-bucket rate limiting and duplicate text matching
+spam_detector:
+  enabled: true
+  burst_window_seconds: 4         # Rapid burst window
+  burst_message_limit: 5          # > 5 messages in 4s triggers burst alert
+  sustained_window_seconds: 10     # Sustained spam window
+  sustained_message_limit: 8      # > 8 messages in 10s triggers alert
+  copypasta_threshold: 4          # >= 4 identical messages across channels in 30s
+  copypasta_min_chars: 10         # Min length to track (ignores short chat like "gg", "lol")
+  mass_mentions_threshold: 4      # >= 4 distinct user/role mentions in one message
+  auto_timeout_seconds: 300       # 5 minutes timeout (only applied when dry_run is false)
+
+# PHISHING & MALICIOUS LINK SCANNER
+# Detects lookalike domains, fake Nitro/Steam scams, and homoglyphs
+phishing_detector:
+  enabled: true
+  check_homoglyphs: true          # Scans for Cyrillic/Unicode characters mimicking Latin letters
+  similarity_threshold: 0.80      # Levenshtein distance ratio against protected brand names
+  protected_brands:
+    - "discord"
+    - "nitro"
+    - "steamcommunity"
+    - "steampowered"
+    - "roblox"
+    - "telegram"
+  whitelisted_domains:
+    - "discord.com"
+    - "discord.gg"
+    - "discordapp.com"
+    - "discord.media"
+    - "youtube.com"
+    - "youtu.be"
+    - "twitch.tv"
+    - "github.com"
+    - "google.com"
+    - "tenor.com"
+    - "giphy.com"
+    - "spotify.com"
+    - "twitter.com"
+    - "x.com"
+    - "reddit.com"
+
+# VOICE CHANNEL & MIC PROTECTION
+# Protects against mic ear-rape/spam and unauthorized mic unmuting by low-level/raid accounts
+voice_protection:
+  enabled: true
+  # Microphone gate: low-level accounts can listen, but must reach role to unmute
+  mic_gate:
+    enabled: true
+    required_role: "Guild Recruit" # Level 5: Role required to unmute microphone in VC
+    notify_user: true              # Sends a polite DM informing member of the unlock level
+    reminder_text: "🎙️ **Microphone access in voice channels unlocks at @{required_role} (Level 5)!** You can still listen in. Keep chatting in text channels to level up."
+
+  # Voice channel hopping (notification connect/disconnect chime spam)
+  vc_hopping:
+    enabled: true
+    max_switches: 5               # Max channel transitions
+    window_seconds: 10            # within 10 seconds
+    auto_timeout_seconds: 300     # 5-minute timeout for chime spammers
+
+# EMERGENCY LOCKDOWN CONFIGURATION
+lockdown:
+  default_duration_minutes: 15
+  max_duration_minutes: 120
+  quarantine_everyone_send: true  # Toggles @everyone 'Send Messages' to False during lockdown
+  affected_channels: []           # Empty = all text channels with @everyone send perms
+
+# MALICIOUS ATTACHMENT & EXECUTABLE BLOCKER
+attachment_security:
+  enabled: true
+  block_executables: true         # Blocks .exe, .scr, .bat, scripts & double extensions (.png.exe)
+  archive_gate:
+    enabled: true
+    required_role: "Bronze Rank"  # Level 10: Role required to upload .zip/.rar/.7z archives
+    reminder_text: "📦 **ZIP and archive uploads unlock at @{required_role} (Level 10)!** Keep chatting to earn archive upload privileges."
+
+# DISCORD INVITE GATE & SELF-PROMO FILTER
+invite_filter:
+  enabled: true
+  required_role: "Bronze Rank"  # Level 10: Role required to post external Discord server invites
+  allowed_channels: []            # Channel IDs where invites are permitted (e.g. #advertising)
+  reminder_text: "🚫 **Discord server invites unlock at @{required_role} (Level 10)!** Server promotion is restricted to prevent spam."
+
+# COMPROMISED ACCOUNT / HACKED FRIEND SHIELD
+compromised_account_guard:
+  enabled: true
+  containment_timeout_hours: 1    # Automatic 1-hour containment for accounts spreading token lures
+  max_cross_channel_spread: 3     # Max distinct channels to post identical links in 20s
+
+# ZALGO TEXT, BLANK NAMES & IMPERSONATION SANITIZER
+name_sanitizer:
+  enabled: true
+  sanitize_zalgo: true            # Strips vertical combining unicode screen-lagging characters
+  sanitize_blank: true            # Renames zero-width invisible names
+  protect_owner_impersonation: true # Renames users mimicking the server owner
+
+# ANTI-WEBHOOK HIJACKING & ROGUE BOT GUARD
+webhook_guard:
+  enabled: true
+  block_unauthorized_everyone: true # Blocks webhooks attempting @everyone mass pings
+  terminate_compromised: true     # Permanently deletes webhook if malicious payload is detected
+

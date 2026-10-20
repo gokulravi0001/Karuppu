@@ -162,6 +162,19 @@ class SecurityBot(commands.Bot):
         except Exception as e:
             logger.error("Failed to sync slash commands: %s", e)
 
+        # 3. Auto-reconnect 24/7 Voice Guard to designated channels
+        for guild in self.guilds:
+            settings = bot_config.guild_settings_cache.get(guild.id, {})
+            guard_ch_id = settings.get("guard_voice_channel_id")
+            if guard_ch_id:
+                ch = guild.get_channel(guard_ch_id)
+                if isinstance(ch, discord.VoiceChannel):
+                    try:
+                        await ch.connect(self_deaf=True)
+                        logger.info("Voice Guard auto-reconnected to #%s in '%s'", ch.name, guild.name)
+                    except Exception as ve:
+                        logger.warning("Could not auto-connect Voice Guard to #%s: %s", ch.name, ve)
+
     async def on_message(self, message: discord.Message):
         """Processes message commands like !sync, then forwards to cogs."""
         if message.author.bot:

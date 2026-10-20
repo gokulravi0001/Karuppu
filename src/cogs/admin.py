@@ -355,6 +355,129 @@ class SecurityAdmin(commands.GroupCog, name="security"):
         embed.set_footer(text="Security override logged to audit database")
         await interaction.response.send_message(embed=embed)
 
+    # ==========================================
+    # 24/7 VOICE GUARD CONNECTION COMMANDS
+    # ==========================================
+    vc_guard_group = app_commands.Group(name="vc_guard", description="Connect or manage 24/7 Voice Guard in a voice channel")
+
+    @vc_guard_group.command(name="join", description="Connect the bot into a voice channel as a 24/7 Voice Guard.")
+    @app_commands.describe(channel="The voice channel to guard (optional: joins your current VC if omitted)")
+    async def cmd_vc_guard_join(self, interaction: discord.Interaction, channel: Optional[discord.VoiceChannel] = None):
+        if not self._check_mod(interaction):
+            await interaction.response.send_message("❌ Moderator permissions required.", ephemeral=True)
+            return
+
+        guild = interaction.guild
+        target_channel = channel
+
+        if not target_channel:
+            if interaction.user.voice and interaction.user.voice.channel:
+                target_channel = interaction.user.voice.channel
+            else:
+                await interaction.response.send_message("❌ Please specify a voice channel, or join a voice channel first!", ephemeral=True)
+                return
+
+        me = guild.me
+        perms = target_channel.permissions_for(me)
+        if not perms.connect:
+            await interaction.response.send_message(f"❌ Bot lacks permission to connect to {target_channel.mention}.", ephemeral=True)
+            return
+
+        await interaction.response.defer()
+
+        try:
+            vc = guild.voice_client
+            if vc and vc.is_connected():
+                if vc.channel.id == target_channel.id:
+                    await interaction.followup.send(f"🛡️ Voice Guard is already active and connected in {target_channel.mention}!")
+                    return
+                await vc.move_to(target_channel)
+            else:
+                await target_channel.connect(self_deaf=True)
+
+            # Persist to database so it auto-reconnects on reboot
+            await db.set_guard_voice_channel(guild.id, target_channel.id)
+            if guild.id not in bot_config.guild_settings_cache:
+                bot_config.guild_settings_cache[guild.id] = {}
+            bot_config.guild_settings_cache[guild.id]["guard_voice_channel_id"] = target_channel.id
+
+            embed = discord.Embed(
+                title="🛡️ Voice Guard Connected & Active",
+                color=discord.Color.green(),
+                description=(
+                    f"**Karuppu** is now connected and guarding {target_channel.mention}!\n\n"
+                    f"• **24/7 Persistence**: Saved as the default Voice Guard channel. The bot will automatically stay and reconnect here after restarts.\n"
+                    f"• **Active Protection**: Guarding against mic glitch macros, notification chime spam, and raid surges.\n"
+                    f"• **Disconnect Anytime**: Use `/security vc_guard leave`."
+                )
+            )
+            embed.set_footer(text=f"Activated by {interaction.user}")
+            await interaction.followup.send(embed=embed)
+        except Exception as e:
+            logger.error("Failed to connect Voice Guard to %s: %s", target_channel.name, e)
+            await interaction.followup.send(f"❌ Failed to connect Voice Guard: `{e}`")
+
+    @vc_guard_group.command(name="leave", description="Disconnect the bot from the voice channel.")
+    async def cmd_vc_guard_leave(self, interaction: discord.Interaction):
+        if not self._check_mod(interaction):
+            await interaction.response.send_message("❌ Moderator permissions required.", ephemeral=True)
+            return
+
+        guild = interaction.guild
+        vc = guild.voice_client
+
+        # Clear from database
+        await db.set_guard_voice_channel(guild.id, None)
+        if guild.id in bot_config.guild_settings_cache:
+            bot_config.guild_settings_cache[guild.id]["guard_voice_channel_id"] = None
+
+        if not vc or not vc.is_connected():
+            await interaction.response.send_message("ℹ️ Voice Guard is not currently connected to any voice channel in this server.", ephemeral=True)
+            return
+
+        channel_name = vc.channel.name
+        try:
+            await vc.disconnect(force=True)
+            embed = discord.Embed(
+                title="🔌 Voice Guard Disconnected",
+                color=discord.Color.orange(),
+                description=f"Voice Guard was disconnected from **#{channel_name}** and cleared from 24/7 auto-connect."
+            )
+            embed.set_footer(text=f"Disconnected by {interaction.user}")
+            await interaction.response.send_message(embed=embed)
+        except Exception as e:
+            await interaction.response.send_message(f"❌ Failed to disconnect: `{e}`", ephemeral=True)
+
+    @vc_guard_group.command(name="status", description="Check current Voice Guard connection status and channel.")
+    async def cmd_vc_guard_status(self, interaction: discord.Interaction):
+        if not self._check_mod(interaction):
+            await interaction.response.send_message("❌ Moderator permissions required.", ephemeral=True)
+            return
+
+        guild = interaction.guild
+        vc = guild.voice_client
+        settings = bot_config.guild_settings_cache.get(guild.id, {})
+        saved_ch_id = settings.get("guard_voice_channel_id")
+        saved_ch = guild.get_channel(saved_ch_id) if saved_ch_id else None
+
+        embed = discord.Embed(
+            title="🛡️ Voice Guard Status",
+            color=discord.Color.blue()
+        )
+        if vc and vc.is_connected():
+            embed.add_field(name="Current Channel", value=f"{vc.channel.mention} (`#{vc.channel.name}`)", inline=True)
+            embed.add_field(name="State", value="🟢 Connected & Guarding", inline=True)
+            embed.add_field(name="Members in Room", value=f"`{len(vc.channel.members) - 1}` active members", inline=True)
+        else:
+            embed.add_field(name="Current State", value="⚪ Not Connected", inline=True)
+
+        embed.add_field(
+            name="24/7 Saved Channel",
+            value=saved_ch.mention if saved_ch else "*None (connect with `/security vc_guard join`)*",
+            inline=False
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
     @app_commands.command(name="set_alert_channel", description="[Admins Only] Select the channel where security alerts and mod cards are sent.")
     @app_commands.describe(channel="The channel for mod logs and raid alerts")
     async def cmd_set_alert_channel(self, interaction: discord.Interaction, channel: discord.TextChannel):

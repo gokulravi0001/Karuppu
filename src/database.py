@@ -87,6 +87,7 @@ class AuditDatabase:
                 ("server_log_channel_id", "INTEGER"),
                 ("unmute_role_id", "INTEGER"),
                 ("unmute_role_name", "TEXT"),
+                ("guard_voice_channel_id", "INTEGER"),
             ]
             for col_name, col_type in log_cols:
                 try:
@@ -242,6 +243,17 @@ class AuditDatabase:
                     unmute_role_id = excluded.unmute_role_id,
                     unmute_role_name = excluded.unmute_role_name;
             """, (guild_id, role_id, role_name))
+            await db.commit()
+
+    async def set_guard_voice_channel(self, guild_id: int, channel_id: Optional[int]) -> None:
+        """Saves or clears the designated voice channel for the 24/7 Voice Guard bot."""
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute("""
+                INSERT INTO guild_settings (guild_id, guard_voice_channel_id)
+                VALUES (?, ?)
+                ON CONFLICT(guild_id) DO UPDATE SET
+                    guard_voice_channel_id = excluded.guard_voice_channel_id;
+            """, (guild_id, channel_id))
             await db.commit()
 
     async def update_all_role_gates(self, guild_id: int, role_data: Dict[str, Any]) -> None:

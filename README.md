@@ -199,6 +199,13 @@ python -m src.bot
 | `/security status` | Display active mode, latency, level gate rules, and health. |
 | `/security toggle_dry_run` | Toggle between Dry-Run (Alert Only) and Active Enforcement. |
 
+### 24/7 Voice Guard
+| Command | Description |
+| :--- | :--- |
+| `/security vc_guard join [channel]` | Connect the bot into a voice channel to stay and guard 24/7. |
+| `/security vc_guard leave` | Disconnect the bot from the voice channel. |
+| `/security vc_guard status` | View active Voice Guard channel and connection status. |
+
 ### Moderation & Containment
 | Command | Description |
 | :--- | :--- |

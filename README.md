@@ -53,14 +53,16 @@ A security bot for Discord built with Python 3.11+ and `discord.py`. Designed to
 15. **Privacy-Preserving**:
    * Ephemeral in-memory sliding windows (60s TTL). Raw message content is never stored on disk; only SHA-256 hashes and truncated snippets are recorded.
    * Automatic daily audit log pruning based on configurable retention days.
-16. **Dedicated Audit & Activity Logging Suite**:
-   * Logs events into separate, dedicated channels so logs stay organized:
-     * **Chat Logs** (`#chat-logs`): Message edits (Before vs After) and deletions with attachment filenames.
-     * **Voice Logs** (`#voice-logs`): VC joins, leaves, channel switches, and server mute/deaf updates.
-     * **Member Logs** (`#join-leave-logs`): Joins with exact account age & `⚠️ New Account (<24h)` badges, and leaves with duration stayed.
-     * **Mod Logs** (`#mod-logs`): Who banned/kicked/timed out whom, expiration times, and exact reasons.
-     * **Server Logs** (`#server-logs`): Channel and role creations/deletions.
-   * **1-Click Auto Setup**: Run `/security setup_all_logs` to auto-create and bind all 5 channels in a private category in seconds!
+16. **Themed Staff Category & Dedicated Logging Suite**:
+   * **Custom Aesthetic Category**: Creates **`＝＝＝𓆩『  𝗕𝗘𝗛𝗜𝗡𝗗 𝗧𝗛𝗘 𝗦𝗖𝗘𝗡𝗘𝗦  』𓆪＝＝＝`** locked exclusively to Admins and authorized staff.
+   * **Themed Operations & Log Channels**:
+     * **`🚨・𝗰𝗼𝗺𝗺𝗮𝗻𝗱-𝗰𝗲𝗻𝘁𝗲𝗿`**: Primary command center for security alerts, raid warnings & 1-click mod action cards.
+     * **`💬・𝗰𝗵𝗮𝘁-𝗹𝗼𝗴𝘀`**: Message edits (Before vs After) and deletions with attachment filenames.
+     * **`🔊・𝘃𝗼𝗶𝗰𝗲-𝗹𝗼𝗴𝘀`**: VC joins, leaves, channel switches, and server mute/deaf updates.
+     * **`👥・𝗺𝗲𝗺𝗯𝗲𝗿-𝗹𝗼𝗴𝘀`**: Joins with exact account age & `⚠️ New Account (<24h)` badges, and leaves with duration stayed.
+     * **`🔨・𝗺𝗼𝗱-𝗹𝗼𝗴𝘀`**: Who banned/kicked/timed out whom, expiration times, and exact reasons.
+     * **`📁・𝘀𝗲𝗿𝘃𝗲𝗿-𝗹𝗼𝗴𝘀`**: Channel and role creations/deletions.
+   * **1-Click Auto Setup**: Run `/security auto_setup [allowed_role]` to automatically create this category and bind all channels in seconds!
 17. **Docker & Healthcheck Ready**:
    * Multi-stage Dockerfile with non-root user execution (`botuser`) and internal HTTP healthcheck endpoint (`/health` on port 8080).
 
@@ -159,7 +161,7 @@ python -m src.bot
 | Command | Description |
 | :--- | :--- |
 | `/help` | Detailed, beginner-friendly guide with interactive topic dropdown. |
-| `/security auto_setup` | **1-Click Master Setup**: Creates private `🛡️ SECURITY & AUDIT SUITE` category with alert channel and all 5 log channels automatically! |
+| `/security auto_setup [allowed_role]` | **1-Click Staff Suite**: Creates private category `＝＝＝𓆩『  𝗕𝗘𝗛𝗜𝗡𝗗 𝗧𝗛𝗘 𝗦𝗖𝗘𝗡𝗘𝗦  』𓆪＝＝＝` with `🚨・𝗰𝗼𝗺𝗺𝗮𝗻𝗱-𝗰𝗲𝗻𝘁𝗲𝗿` & log channels! |
 | `/security set_role <gate> <role>` | Select which level role unlocks a permission (`links`, `media`, `mic`, `archives`, `invites`). |
 | `/security set_alert_channel <channel>` | Select the channel where raid cards and security alerts are posted. |
 | `/security set_log_channel <category> <channel>` | Assign dedicated channels for `chat`, `voice`, `member`, `mod`, and `server` logs. |

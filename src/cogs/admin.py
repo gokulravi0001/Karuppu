@@ -283,9 +283,15 @@ class SecurityAdmin(commands.GroupCog, name="security"):
         embed.set_footer(text=f"Configured by {interaction.user}")
         await interaction.response.send_message(embed=embed)
 
-    @app_commands.command(name="auto_setup", description="[Admins Only] 1-Click Setup: Automatically creates and binds all security and log channels.")
-    async def cmd_auto_setup(self, interaction: discord.Interaction):
-        """Creates a private security category with alerts and all 5 log channels in 1 click."""
+    @app_commands.command(
+        name="auto_setup",
+        description="[Admins Only] Creates the 'BEHIND THE SCENES' private staff suite with 'command-center' & log channels."
+    )
+    @app_commands.describe(
+        allowed_role="Optional: An extra moderator/staff role allowed to see these private channels"
+    )
+    async def cmd_auto_setup(self, interaction: discord.Interaction, allowed_role: Optional[discord.Role] = None):
+        """Creates the private themed staff category and channels only visible to admins & allowed staff."""
         if not self._check_mod(interaction):
             await interaction.response.send_message("❌ Moderator permissions required.", ephemeral=True)
             return
@@ -293,32 +299,49 @@ class SecurityAdmin(commands.GroupCog, name="security"):
         guild = interaction.guild
         me = guild.me
         if not me.guild_permissions.manage_channels:
-            await interaction.response.send_message("❌ Bot lacks the **'Manage Channels'** permission to create channels for you.", ephemeral=True)
+            await interaction.response.send_message("❌ Bot lacks the **'Manage Channels'** permission to create channels.", ephemeral=True)
             return
 
         await interaction.response.defer(ephemeral=True)
 
-        # Overwrites: visible only to Admins/Mods and the bot
+        # 1. Base Overwrites: Hidden completely from @everyone
         overwrites = {
-            guild.default_role: discord.PermissionOverwrite(read_messages=False, send_messages=False),
-            me: discord.PermissionOverwrite(read_messages=True, send_messages=True, embed_links=True, manage_messages=True)
+            guild.default_role: discord.PermissionOverwrite(view_channel=False, send_messages=False, connect=False),
+            me: discord.PermissionOverwrite(
+                view_channel=True,
+                send_messages=True,
+                embed_links=True,
+                attach_files=True,
+                manage_messages=True
+            )
         }
 
-        try:
-            category = await guild.create_category("🛡️ SECURITY & AUDIT SUITE", overwrites=overwrites, reason="Automated security suite setup")
+        # 2. Grant visibility to staff roles (with admin or moderation perms)
+        for r in guild.roles:
+            if r.permissions.administrator or r.permissions.moderate_members or r.permissions.manage_guild:
+                overwrites[r] = discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True)
 
-            channel_defs = [
-                ("🚨-security-alerts", "alert", "Primary security alerts, raid warnings, phishing catches, and mod review action cards"),
-                ("💬-chat-logs", "chat", "Message edits & deletions with attachment filenames"),
-                ("🔊-voice-logs", "voice", "Voice channel joins, leaves, switches & server mutes"),
-                ("👥-member-logs", "member", "Member joins with account age warnings (<24h) & leaves"),
-                ("🔨-mod-logs", "mod", "Bans, kicks, timeouts, who did what to whom + reasons"),
-                ("📁-server-logs", "server", "Channel and role creations/deletions")
-            ]
+        # 3. Grant visibility to explicitly passed allowed_role
+        if allowed_role:
+            overwrites[allowed_role] = discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True)
+
+        category_name = "＝＝＝𓆩『  𝗕𝗘𝗛𝗜𝗡𝗗 𝗧𝗛𝗘 𝗦𝗖𝗘𝗡𝗘𝗦  』𓆪＝＝＝"
+
+        channel_defs = [
+            ("🚨・𝗰𝗼𝗺𝗺𝗮𝗻𝗱-𝗰𝗲𝗻𝘁𝗲𝗿", "alert", "Primary command center for security alerts, raid warnings & 1-click mod action cards"),
+            ("💬・𝗰𝗵𝗮𝘁-𝗹𝗼𝗴𝘀", "chat", "Message edits & deletions with attachment filenames"),
+            ("🔊・𝘃𝗼𝗶𝗰𝗲-𝗹𝗼𝗴𝘀", "voice", "Voice channel joins, leaves, switches & server mutes"),
+            ("👥・𝗺𝗲𝗺𝗯𝗲𝗿-𝗹𝗼𝗴𝘀", "member", "Member joins with account age warnings (<24h) & leaves"),
+            ("🔨・𝗺𝗼𝗱-𝗹𝗼𝗴𝘀", "mod", "Bans, kicks, timeouts, who did what to whom + reasons"),
+            ("📁・𝘀𝗲𝗿𝘃𝗲𝗿-𝗹𝗼𝗴𝘀", "server", "Channel and role creations/deletions")
+        ]
+
+        try:
+            category = await guild.create_category(category_name, overwrites=overwrites, reason="Automated behind-the-scenes staff setup")
 
             created_channels = {}
             for name, ch_type, topic in channel_defs:
-                ch = await guild.create_text_channel(name, category=category, topic=topic, reason="Automated security suite setup")
+                ch = await guild.create_text_channel(name, category=category, topic=topic, reason="Automated behind-the-scenes staff setup")
                 created_channels[ch_type] = ch
 
                 # Bind to database and cache
@@ -332,41 +355,46 @@ class SecurityAdmin(commands.GroupCog, name="security"):
                     await db.set_log_channel(guild.id, ch_type, ch.id)
                     bot_config.guild_settings_cache[guild.id][f"{ch_type}_log_channel_id"] = ch.id
 
-            # Post Welcome / Orientation card into the new security alerts channel
-            alerts_ch = created_channels["alert"]
+            # Post Welcome & Orientation card into the new command center
+            cmd_center = created_channels["alert"]
             welcome_embed = discord.Embed(
-                title="🛡️ Antigravity Security Suite Initialized!",
-                color=discord.Color.green(),
+                title="𓆩『 𝗕𝗘𝗛𝗜𝗡𝗗 𝗧𝗛𝗘 𝗦𝗖𝗘𝗡𝗘𝗦 : 𝗖𝗢𝗠𝗠𝗔𝗡𝗗 𝗖𝗘𝗡𝗧𝗘𝗥 』𓆪",
+                color=discord.Color.from_rgb(43, 45, 49),
                 description=(
-                    f"Welcome to your private **Security & Audit Center** on **{guild.name}**!\n\n"
-                    "All security alerts, raid warnings, and logging channels are now active and bound to this server.\n\n"
-                    "### 📁 Your Channels in This Suite:\n"
-                    f"• {created_channels['alert'].mention} — Live raid warnings, phishing links, and 1-click mod action cards\n"
-                    f"• {created_channels['chat'].mention} — Message edits and deletions with before/after comparisons\n"
-                    f"• {created_channels['voice'].mention} — VC joins, leaves, and channel transitions\n"
-                    f"• {created_channels['member'].mention} — Joins with **New Account (<24h)** badges & leave logs\n"
+                    f"Welcome to the **Command Center** for **{guild.name}**!\n\n"
+                    "This entire category is private and locked—visible strictly to server administrators and authorized staff.\n\n"
+                    "### 📁 Active Operations Channels:\n"
+                    f"• {created_channels['alert'].mention} — Live raid alerts, phishing alerts, and interactive mod action cards\n"
+                    f"• {created_channels['chat'].mention} — Message edits & deletions with before/after comparison\n"
+                    f"• {created_channels['voice'].mention} — VC joins, leaves, and channel switching records\n"
+                    f"• {created_channels['member'].mention} — Member joins with **New Account (<24h)** badges & leave logs\n"
                     f"• {created_channels['mod'].mention} — Bans, kicks, and timeouts with moderator and reason details\n"
-                    f"• {created_channels['server'].mention} — Channel & role creation/deletion tracking\n\n"
-                    "### 🚀 Next Quick Steps:\n"
-                    "1. Connect your level roles: `/security set_role gate:links role:@YourRole`\n"
-                    "2. Check status: `/security status`\n"
-                    "3. When ready for active punishment: `/security toggle_dry_run`"
+                    f"• {created_channels['server'].mention} — Server channel & role modifications\n\n"
+                    "### 🚀 Quick Command Tips:\n"
+                    "• Set level reward roles: `/security set_role gate:links role:@Role`\n"
+                    "• Check active configuration: `/security setup`\n"
+                    "• Toggle live enforcement: `/security toggle_dry_run`"
                 )
             )
-            welcome_embed.set_footer(text="🔒 Hidden from regular members • Visible only to Staff and Security Bot")
-            await alerts_ch.send(embed=welcome_embed)
+            welcome_embed.set_footer(text="🔒 Hidden from regular members • Authorized Staff Only")
+            await cmd_center.send(embed=welcome_embed)
 
-            # Reply to the admin who ran the command
+            # Reply to the admin
             channels_list_str = "\n".join([f"• {c.mention} — `{c.topic}`" for c in created_channels.values()])
             admin_reply_embed = discord.Embed(
-                title="🎉 1-Click Setup Complete!",
+                title="🎉 Behind The Scenes Suite Created!",
                 color=discord.Color.green(),
                 description=(
-                    f"Successfully created private category **{category.name}** with all 6 channels configured:\n\n"
+                    f"Successfully created private category:\n**`{category.name}`**\n\n"
+                    f"**Configured Channels:**\n"
                     f"{channels_list_str}\n\n"
-                    f"✅ **All 6 channels are already connected to the bot's database.** No manual channel binding is needed!"
+                    f"🔒 **Privacy Guarantee**: Completely invisible to `@everyone`. Only admins and authorized staff can see these channels.\n"
+                    f"✅ **Auto-Bound**: All channels are already connected to the bot's logging engine."
                 )
             )
+            if allowed_role:
+                admin_reply_embed.add_field(name="Granted Staff Role", value=allowed_role.mention, inline=False)
+
             await interaction.followup.send(embed=admin_reply_embed, ephemeral=True)
         except Exception as e:
             logger.error("Failed during auto_setup: %s", e)

@@ -85,6 +85,51 @@ class TestSpamDetection(unittest.TestCase):
         norm = "".join(ch for ch in short_msg.lower() if ch.isalnum())
         self.assertLess(len(norm), 10)
 
+    def test_identical_message_ten_limit(self):
+        from src.cogs.spam_detector import SpamDetector
+        detector = SpamDetector(bot=None)
+        msg_text = "Check out this awesome game!"
+
+        # Send 10 times: all should be under the limit
+        for i in range(10):
+            over, count = detector._check_identical_ceiling(user_id=123, channel_id=456, content=msg_text, max_allowed=10, window_secs=60)
+            self.assertFalse(over, f"Message {i+1} should not be flagged as over limit")
+            self.assertEqual(count, i + 1)
+
+        # 11th message: exceeds ceiling!
+        over, count = detector._check_identical_ceiling(user_id=123, channel_id=456, content=msg_text, max_allowed=10, window_secs=60)
+        self.assertTrue(over, "11th identical message must be flagged over limit")
+        self.assertEqual(count, 11)
+
+
+class TestAntiNuke(unittest.TestCase):
+    def test_mass_channel_delete_threshold(self):
+        from src.cogs.anti_nuke import AntiNuke
+        nuke = AntiNuke(bot=None)
+
+        # 2 channel deletes in 10s should not trigger limit of 3
+        t1, c1 = nuke._track_action(guild_id=1, user_id=999, action_type="channel_delete", threshold=3, window_secs=10)
+        self.assertFalse(t1)
+        t2, c2 = nuke._track_action(guild_id=1, user_id=999, action_type="channel_delete", threshold=3, window_secs=10)
+        self.assertFalse(t2)
+
+        # 3rd channel delete triggers anti-nuke
+        t3, c3 = nuke._track_action(guild_id=1, user_id=999, action_type="channel_delete", threshold=3, window_secs=10)
+        self.assertTrue(t3)
+        self.assertEqual(c3, 3)
+
+    def test_mass_ban_threshold(self):
+        from src.cogs.anti_nuke import AntiNuke
+        nuke = AntiNuke(bot=None)
+
+        for _ in range(2):
+            trig, _ = nuke._track_action(guild_id=1, user_id=888, action_type="mass_ban", threshold=3, window_secs=10)
+            self.assertFalse(trig)
+
+        trig, count = nuke._track_action(guild_id=1, user_id=888, action_type="mass_ban", threshold=3, window_secs=10)
+        self.assertTrue(trig)
+        self.assertEqual(count, 3)
+
 
 class TestRaidDetection(unittest.TestCase):
     def test_join_burst_calculation(self):

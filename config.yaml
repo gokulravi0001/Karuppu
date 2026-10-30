@@ -47,17 +47,34 @@ raid_detector:
   quarantine_role_name: "Quarantined"
 
 # SPAM & MASS MENTION DETECTION
-# Token-bucket rate limiting and duplicate text matching
+# Token-bucket rate limiting, duplicate text matching, and 10-message repetition ceiling
 spam_detector:
   enabled: true
+  max_identical_messages: 10      # Any message sent more than 10 times is blocked & deleted
+  identical_window_seconds: 60    # Within 60 seconds rolling window
   burst_window_seconds: 4         # Rapid burst window
   burst_message_limit: 5          # > 5 messages in 4s triggers burst alert
   sustained_window_seconds: 10     # Sustained spam window
   sustained_message_limit: 8      # > 8 messages in 10s triggers alert
   copypasta_threshold: 4          # >= 4 identical messages across channels in 30s
-  copypasta_min_chars: 10         # Min length to track (ignores short chat like "gg", "lol")
+  copypasta_min_chars: 6          # Min length to track
   mass_mentions_threshold: 4      # >= 4 distinct user/role mentions in one message
   auto_timeout_seconds: 300       # 5 minutes timeout (only applied when dry_run is false)
+
+# ANTI-NUKE PROTECTION
+# Defends server against compromised admins or rogue bots attempting mass destruction
+anti_nuke:
+  enabled: true
+  channel_delete_limit: 3        # >= 3 channels deleted in 10s triggers anti-nuke
+  channel_create_limit: 5        # >= 5 channels created in 10s triggers anti-nuke
+  role_delete_limit: 3           # >= 3 roles deleted in 10s triggers anti-nuke
+  role_create_limit: 5           # >= 5 roles created in 10s triggers anti-nuke
+  mass_ban_limit: 3              # >= 3 bans in 10s triggers anti-nuke
+  mass_kick_limit: 3             # >= 3 kicks in 10s triggers anti-nuke
+  webhook_create_limit: 3        # >= 3 webhooks created in 10s
+  window_seconds: 10             # Velocity window
+  action: "strip_roles"          # "strip_roles" (removes dangerous perms) or "ban" (bans rogue account)
+  auto_lockdown: true            # Automatically locks public channels during a detected nuke attack
 
 # PHISHING & MALICIOUS LINK SCANNER
 # Detects lookalike domains, fake Nitro/Steam scams, and homoglyphs

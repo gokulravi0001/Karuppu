@@ -63,8 +63,9 @@ HELP_PAGES = {
         "description": (
             "The bot continuously monitors events in real-time to stop coordinated attacks:\n\n"
             "• 🚨 **Anti-Raid Join Tracker**: Flags sudden bursts of accounts joining in seconds, especially accounts created less than 24 hours ago.\n"
+            "• 🛡️ **Anti-Nuke Shield**: Stops rogue admins or compromised bots from mass deleting channels, mass deleting roles, or mass banning members.\n"
+            "• 💬 **Anti-Spam (10 Message Ceiling)**: No message can be sent more than 10 times. Stops burst flooding, identical copypasta, and mass pings.\n"
             "• 🛑 **Phishing & Brand Spoof Scanner**: Catches typosquatting like `discorcl-gift.com` or Cyrillic lookalikes mimicking Steam/Nitro.\n"
-            "• 💬 **Spam Burst & Copypasta Limiter**: Stops wall-of-text flooding and identical text copy-pasted across channels.\n"
             "• ☣️ **Executable Blocker**: Instantly deletes `.exe`, `.scr`, `.bat`, `.apk`, and double-extension files (`photo.png.exe`).\n"
             "• 🤖 **Compromised Account Shield**: If a real friend's account gets hacked and starts sending *\"test my new game\"* token stealers, the bot quarantines the account for 1 hour to prevent damage.\n"
             "• 🏷️ **Zalgo / Screen-Lag Sanitizer**: Cleans invisible names or vertical screen-crashing text.\n"

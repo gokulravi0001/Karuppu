@@ -107,6 +107,11 @@ class BotConfig:
     def lockdown(self) -> Dict[str, Any]:
         return self.raw_data.get("lockdown", {})
 
+    # Anti-Nuke settings
+    @property
+    def anti_nuke(self) -> Dict[str, Any]:
+        return self.raw_data.get("anti_nuke", {})
+
     # Owner bypass validation
     def is_guild_owner(self, guild: Optional[discord.Guild], user_id: int) -> bool:
         """Checks if a user is the server owner or configured owner."""

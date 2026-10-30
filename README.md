@@ -40,11 +40,16 @@ A security bot for Discord built with Python 3.11+ and `discord.py`. Designed to
 11. **Phishing & Scam Link Scanner**:
    * Scans for typosquatting, Cyrillic/homoglyph lookalikes, and brand spoofing (`discord`, `nitro`, `steamcommunity`, etc.) using Levenshtein distance.
    * Allowlist for trusted platforms (`youtube.com`, `tenor.com`, `spotify.com`, etc.).
-12. **Spam & Mass Mention Limiter**:
+12. **Anti-Spam & 10-Message Repetition Ceiling**:
+   * **10-Message Ceiling**: Prevents ANY message from being sent more than 10 times. The 11th and subsequent identical messages are automatically deleted and the sender is timed out.
    * Token-bucket rate limiter for rapid bursts ($> 5$ messages in 4s).
    * Cross-channel duplicate/copypasta detector (ignores short chat like "gg", "lol").
    * Detects mass pings ($\ge 4$ mentions) and unauthorized `@everyone` / `@here`.
-13. **Graduated Response & Safe Defaults**:
+13. **Anti-Nuke Protection**:
+   * Protects the server against rogue administrators or compromised bot tokens attempting mass destruction.
+   * Auto-detects mass channel deletions ($\ge 3$ in 10s), mass channel creations ($\ge 5$ in 10s), mass role deletions/creations, mass bans ($\ge 3$ in 10s), and mass kicks.
+   * Immediately strips all administrative roles from the offender, kicks/bans rogue bots, triggers emergency server lockdown, and sends an urgent DM to the Server Owner.
+14. **Graduated Response & Safe Defaults**:
    * **Dry-Run Mode Enabled by Default** (`dry_run: true`): Alerts moderators with interactive action cards before taking any destructive action.
    * **Human Approval for High-Impact Actions**: Bans and mass actions require explicit moderator confirmation modals. The bot **never** automatically mass-bans.
 14. **Emergency Auto-Expiring Lockdown**:

@@ -956,7 +956,8 @@ class SecurityAdmin(commands.GroupCog, name="security"):
             name="Threat Modules",
             value=(
                 f"• **Anti-Raid Detector:** `{'Enabled' if bot_config.raid_detector.get('enabled') else 'Disabled'}`\n"
-                f"• **Anti-Spam / Burst:** `{'Enabled' if bot_config.spam_detector.get('enabled') else 'Disabled'}`\n"
+                f"• **Anti-Nuke Protection:** `{'Enabled' if bot_config.anti_nuke.get('enabled', True) else 'Disabled'}`\n"
+                f"• **Anti-Spam (10 Msg Cap):** `{'Enabled' if bot_config.spam_detector.get('enabled') else 'Disabled'}`\n"
                 f"• **Phishing Filter:** `{'Enabled' if bot_config.phishing_detector.get('enabled') else 'Disabled'}`\n"
                 f"• **Voice Channel Defense:** `{'Enabled' if voice_cfg.get('enabled') else 'Disabled'}`"
             ),

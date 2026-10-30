@@ -20,10 +20,52 @@ class SpamDetector(commands.Cog):
         self.user_message_times: Dict[int, Deque[float]] = defaultdict(deque)
         # user_id -> deque of (timestamp, content_hash)
         self.user_copypasta_history: Dict[int, Deque[Tuple[float, str]]] = defaultdict(deque)
+        # user_id -> deque of (timestamp, content_hash) for identical message ceiling (10 max)
+        self.user_identical_messages: Dict[int, Deque[Tuple[float, str]]] = defaultdict(deque)
+        # channel_id -> deque of (timestamp, content_hash)
+        self.channel_identical_messages: Dict[int, Deque[Tuple[float, str]]] = defaultdict(deque)
 
     def _normalize_text(self, text: str) -> str:
         """Strips whitespace, converts to lower case, and removes punctuation for duplicate detection."""
         return "".join(ch for ch in text.lower() if ch.isalnum())
+
+    def _check_identical_ceiling(
+        self,
+        user_id: int,
+        channel_id: int,
+        content: str,
+        max_allowed: int = 10,
+        window_secs: int = 60
+    ) -> Tuple[bool, int]:
+        """Ensures that no message can be sent more than max_allowed (10) times."""
+        norm = self._normalize_text(content) or content.strip().lower()
+        if not norm:
+            return False, 0
+
+        content_hash = hashlib.sha256(norm.encode("utf-8")).hexdigest()
+        now = time.time()
+
+        # Check user history
+        user_history = self.user_identical_messages[user_id]
+        user_history.append((now, content_hash))
+        while user_history and (now - user_history[0][0]) > window_secs:
+            user_history.popleft()
+
+        user_count = sum(1 for (t, h) in user_history if h == content_hash)
+        if user_count > max_allowed:
+            return True, user_count
+
+        # Check channel history
+        ch_history = self.channel_identical_messages[channel_id]
+        ch_history.append((now, content_hash))
+        while ch_history and (now - ch_history[0][0]) > window_secs:
+            ch_history.popleft()
+
+        ch_count = sum(1 for (t, h) in ch_history if h == content_hash)
+        if ch_count > max_allowed:
+            return True, ch_count
+
+        return False, user_count
 
     def _check_burst(self, user_id: int, burst_limit: int, burst_window: int) -> bool:
         now = time.time()
@@ -79,25 +121,35 @@ class SpamDetector(commands.Cog):
         copypasta_limit = int(cfg.get("copypasta_threshold", 4))
         copypasta_min_chars = int(cfg.get("copypasta_min_chars", 10))
         mention_limit = int(cfg.get("mass_mentions_threshold", 4))
+        max_identical = int(cfg.get("max_identical_messages", 10))
+        identical_window = int(cfg.get("identical_window_seconds", 60))
 
         violation = None
         confidence = "HIGH (90%)"
 
-        # 1. Check Mass Mentions
-        mentions_count = self._count_mentions(message)
-        if mentions_count >= mention_limit:
-            violation = f"Mass Mention ({mentions_count} pings in one message)"
-            confidence = "HIGH (98%)"
-        elif message.mention_everyone and not member.guild_permissions.mention_everyone:
-            violation = "Unauthorized @everyone/@here ping attempt"
-            confidence = "HIGH (100%)"
+        # 1. Check Repeated Message Ceiling (No message sent more than 10 times)
+        if message.content:
+            over_limit, count = self._check_identical_ceiling(member.id, channel.id, message.content, max_identical, identical_window)
+            if over_limit:
+                violation = f"Message Sent Over 10 Times ({count} duplicates in {identical_window}s)"
+                confidence = "HIGH (100% Deterministic)"
 
-        # 2. Check Copypasta / Duplicate Spam
+        # 2. Check Mass Mentions
+        if not violation:
+            mentions_count = self._count_mentions(message)
+            if mentions_count >= mention_limit:
+                violation = f"Mass Mention ({mentions_count} pings in one message)"
+                confidence = "HIGH (98%)"
+            elif message.mention_everyone and not member.guild_permissions.mention_everyone:
+                violation = "Unauthorized @everyone/@here ping attempt"
+                confidence = "HIGH (100%)"
+
+        # 3. Check Copypasta / Duplicate Spam
         if not violation and message.content:
             if self._check_copypasta(member.id, message.content, copypasta_limit, copypasta_min_chars):
                 violation = f"Duplicate Copypasta Spam ({copypasta_limit}+ identical messages in 30s)"
 
-        # 3. Check Message Burst Rate
+        # 4. Check Message Burst Rate
         if not violation:
             if self._check_burst(member.id, burst_limit, burst_window):
                 violation = f"Rapid Message Burst ({burst_limit}+ messages in {burst_window}s)"

@@ -99,6 +99,7 @@ class SecurityBot(commands.Bot):
             "src.cogs.voice_protection",
             "src.cogs.raid_detector",
             "src.cogs.spam_detector",
+            "src.cogs.anti_nuke",
             "src.cogs.link_filter",
             "src.cogs.attachment_scanner",
             "src.cogs.invite_filter",

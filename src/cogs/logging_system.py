@@ -3,8 +3,9 @@ Logs Chat (edits/deletions), Voice (joins/leaves/switches), Members (joins/leave
 and Moderation Actions (who banned/kicked/timed out whom + reasons) into dedicated channels.
 """
 import logging
+import asyncio
 from datetime import datetime, timezone, timedelta
-from typing import Optional
+from typing import Optional, Union
 import discord
 from discord.ext import commands
 from src.config import bot_config
@@ -95,21 +96,53 @@ class LoggingSystem(commands.Cog):
             logger.debug("Failed posting edit log: %s", e)
 
     # ==========================================
-    # 2. VOICE CHANNEL LOGS (Joins, Leaves, Switches)
+    # 2. VOICE CHANNEL LOGS (Joins, Leaves, Switches, Moves, Mutes/Deafens)
     # ==========================================
+    async def _find_voice_moderator(
+        self,
+        guild: discord.Guild,
+        action: discord.AuditLogAction,
+        target_id: Optional[int] = None,
+        max_age_seconds: float = 6.0
+    ) -> Optional[Union[discord.Member, discord.User]]:
+        """Looks up Discord audit logs to find which moderator triggered a voice state change."""
+        if not guild.me.guild_permissions.view_audit_log:
+            return None
+        # Short sleep to allow Discord's audit log entry to register
+        await asyncio.sleep(0.5)
+        try:
+            now_utc = datetime.now(timezone.utc)
+            async for entry in guild.audit_logs(limit=5, action=action):
+                time_diff = (now_utc - entry.created_at).total_seconds()
+                if time_diff < 0 or time_diff > max_age_seconds:
+                    continue
+                if target_id is not None:
+                    try:
+                        entry_tid = getattr(entry.target, "id", getattr(entry, "_target_id", None))
+                    except Exception:
+                        entry_tid = getattr(entry, "_target_id", None)
+                    if entry_tid == target_id:
+                        return entry.user
+                else:
+                    return entry.user
+        except Exception as e:
+            logger.debug("Failed querying voice audit log for %s: %s", action, e)
+        return None
+
     @commands.Cog.listener()
     async def on_voice_state_update(self, member: discord.Member, before: discord.VoiceState, after: discord.VoiceState):
         if not member.guild:
             return
 
-        log_channel = self._get_target_channel(member.guild, "voice")
+        guild = member.guild
+        log_channel = self._get_target_channel(guild, "voice")
         if not log_channel:
             return
 
         embed = None
         now_ts = datetime.now(timezone.utc)
 
-        # Member Joined Voice Channel
+        # 1. Member Joined Voice Channel
         if before.channel is None and after.channel is not None:
             embed = discord.Embed(
                 title="🔊 Member Joined Voice Channel",
@@ -120,30 +153,65 @@ class LoggingSystem(commands.Cog):
             embed.add_field(name="Member", value=f"{member.mention} (`{member.id}`)", inline=True)
             embed.add_field(name="Voice Channel", value=f"#{after.channel.name} (`{after.channel.id}`)", inline=True)
 
-        # Member Left Voice Channel
+        # 2. Member Left Voice Channel or Disconnected by Moderator
         elif before.channel is not None and after.channel is None:
-            embed = discord.Embed(
-                title="🔇 Member Left Voice Channel",
-                color=discord.Color.red(),
-                timestamp=now_ts
+            disconnector = await self._find_voice_moderator(
+                guild=guild,
+                action=discord.AuditLogAction.member_disconnect,
+                max_age_seconds=6.0
             )
-            embed.set_author(name=str(member), icon_url=member.display_avatar.url)
-            embed.add_field(name="Member", value=f"{member.mention} (`{member.id}`)", inline=True)
-            embed.add_field(name="Voice Channel", value=f"#{before.channel.name} (`{before.channel.id}`)", inline=True)
+            if disconnector:
+                embed = discord.Embed(
+                    title="🔌 Member Disconnected by Moderator",
+                    color=discord.Color.dark_red(),
+                    timestamp=now_ts
+                )
+                embed.set_author(name=str(member), icon_url=member.display_avatar.url)
+                embed.add_field(name="Target Member", value=f"{member.mention} (`{member.id}`)", inline=True)
+                embed.add_field(name="Voice Channel", value=f"#{before.channel.name} (`{before.channel.id}`)", inline=True)
+                embed.add_field(name="Disconnected By", value=f"{disconnector.mention} (`{disconnector.id}`)", inline=False)
+            else:
+                embed = discord.Embed(
+                    title="🔇 Member Left Voice Channel",
+                    color=discord.Color.red(),
+                    timestamp=now_ts
+                )
+                embed.set_author(name=str(member), icon_url=member.display_avatar.url)
+                embed.add_field(name="Member", value=f"{member.mention} (`{member.id}`)", inline=True)
+                embed.add_field(name="Voice Channel", value=f"#{before.channel.name} (`{before.channel.id}`)", inline=True)
+                embed.add_field(name="Action By", value="Self (User left VC)", inline=True)
 
-        # Member Switched Channels
+        # 3. Member Switched Channels or Moved by Moderator
         elif before.channel is not None and after.channel is not None and before.channel.id != after.channel.id:
-            embed = discord.Embed(
-                title="🔄 Member Switched Voice Channels",
-                color=discord.Color.blue(),
-                timestamp=now_ts
+            mover = await self._find_voice_moderator(
+                guild=guild,
+                action=discord.AuditLogAction.member_move,
+                max_age_seconds=6.0
             )
-            embed.set_author(name=str(member), icon_url=member.display_avatar.url)
-            embed.add_field(name="Member", value=f"{member.mention} (`{member.id}`)", inline=True)
-            embed.add_field(name="Previous Channel", value=f"#{before.channel.name}", inline=True)
-            embed.add_field(name="New Channel", value=f"#{after.channel.name}", inline=True)
+            if mover:
+                embed = discord.Embed(
+                    title="🚚 Member Moved by Moderator",
+                    color=discord.Color.gold(),
+                    timestamp=now_ts
+                )
+                embed.set_author(name=str(member), icon_url=member.display_avatar.url)
+                embed.add_field(name="Target Member", value=f"{member.mention} (`{member.id}`)", inline=True)
+                embed.add_field(name="Moved By", value=f"{mover.mention} (`{mover.id}`)", inline=True)
+                embed.add_field(name="Previous Channel", value=f"#{before.channel.name}", inline=True)
+                embed.add_field(name="New Channel", value=f"#{after.channel.name}", inline=True)
+            else:
+                embed = discord.Embed(
+                    title="🔄 Member Switched Voice Channels",
+                    color=discord.Color.blue(),
+                    timestamp=now_ts
+                )
+                embed.set_author(name=str(member), icon_url=member.display_avatar.url)
+                embed.add_field(name="Member", value=f"{member.mention} (`{member.id}`)", inline=True)
+                embed.add_field(name="Previous Channel", value=f"#{before.channel.name}", inline=True)
+                embed.add_field(name="New Channel", value=f"#{after.channel.name}", inline=True)
+                embed.add_field(name="Action By", value="Self (User switched)", inline=True)
 
-        # Server Mute / Deafen Changes
+        # 4. Server Mute / Deafen Changes (Who Muted or Deafened Whom)
         elif before.mute != after.mute or before.deaf != after.deaf:
             state_text = []
             if before.mute != after.mute:
@@ -151,15 +219,31 @@ class LoggingSystem(commands.Cog):
             if before.deaf != after.deaf:
                 state_text.append(f"Server {'Deafened' if after.deaf else 'Undeafened'}")
 
+            state_desc = ", ".join(state_text)
+            action_moderator = await self._find_voice_moderator(
+                guild=guild,
+                action=discord.AuditLogAction.member_update,
+                target_id=member.id,
+                max_age_seconds=6.0
+            )
+
+            mod_display = (
+                f"{action_moderator.mention} (`{action_moderator.id}`)"
+                if action_moderator else "Unknown / Automated Bot"
+            )
+
             embed = discord.Embed(
-                title=f"🎙️ Voice State Updated: {', '.join(state_text)}",
-                color=discord.Color.purple(),
+                title=f"🎙️ Voice State Updated: {state_desc}",
+                color=discord.Color.purple() if (after.mute or after.deaf) else discord.Color.teal(),
                 timestamp=now_ts
             )
             embed.set_author(name=str(member), icon_url=member.display_avatar.url)
-            embed.add_field(name="Member", value=f"{member.mention} (`{member.id}`)", inline=True)
-            if after.channel:
-                embed.add_field(name="Channel", value=f"#{after.channel.name}", inline=True)
+            embed.add_field(name="Target Member", value=f"{member.mention} (`{member.id}`)", inline=True)
+            embed.add_field(name="Action Taken", value=f"**{state_desc}**", inline=True)
+            embed.add_field(name="Moderator", value=mod_display, inline=False)
+            vc_target = after.channel or before.channel
+            if vc_target:
+                embed.add_field(name="Voice Channel", value=f"#{vc_target.name} (`{vc_target.id}`)", inline=True)
 
         if embed:
             try:

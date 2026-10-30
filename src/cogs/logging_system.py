@@ -254,7 +254,17 @@ class LoggingSystem(commands.Cog):
         embed = None
         now_utc = datetime.now(timezone.utc)
         mod_user = entry.user
-        target = entry.target
+        try:
+            target = entry.target
+        except Exception:
+            target = None
+
+        target_display = getattr(target, "mention", None) or getattr(target, "name", None)
+        if not target_display:
+            tid = getattr(entry, "_target_id", None)
+            target_display = f"<@{tid}>" if tid else "Unknown"
+
+        target_id_str = getattr(target, "id", getattr(entry, "_target_id", "Unknown"))
         reason = entry.reason or "*No reason specified*"
 
         # BAN
@@ -264,7 +274,7 @@ class LoggingSystem(commands.Cog):
                 color=discord.Color.dark_red(),
                 timestamp=now_utc
             )
-            embed.add_field(name="Target User", value=f"**{target}** (`{getattr(target, 'id', 'Unknown')}`)", inline=True)
+            embed.add_field(name="Target User", value=f"**{target_display}** (`{target_id_str}`)", inline=True)
             embed.add_field(name="Moderator", value=f"{mod_user.mention if mod_user else 'Unknown'} (`{getattr(mod_user, 'id', '')}`)", inline=True)
             embed.add_field(name="Reason", value=reason, inline=False)
 
@@ -275,7 +285,7 @@ class LoggingSystem(commands.Cog):
                 color=discord.Color.green(),
                 timestamp=now_utc
             )
-            embed.add_field(name="Target User", value=f"**{target}** (`{getattr(target, 'id', 'Unknown')}`)", inline=True)
+            embed.add_field(name="Target User", value=f"**{target_display}** (`{target_id_str}`)", inline=True)
             embed.add_field(name="Moderator", value=f"{mod_user.mention if mod_user else 'Unknown'}", inline=True)
             embed.add_field(name="Reason", value=reason, inline=False)
 
@@ -286,7 +296,7 @@ class LoggingSystem(commands.Cog):
                 color=discord.Color.orange(),
                 timestamp=now_utc
             )
-            embed.add_field(name="Target User", value=f"**{target}** (`{getattr(target, 'id', 'Unknown')}`)", inline=True)
+            embed.add_field(name="Target User", value=f"**{target_display}** (`{target_id_str}`)", inline=True)
             embed.add_field(name="Moderator", value=f"{mod_user.mention if mod_user else 'Unknown'}", inline=True)
             embed.add_field(name="Reason", value=reason, inline=False)
 
@@ -300,7 +310,7 @@ class LoggingSystem(commands.Cog):
                         color=discord.Color.gold(),
                         timestamp=now_utc
                     )
-                    embed.add_field(name="Target User", value=f"{getattr(target, 'mention', str(target))} (`{getattr(target, 'id', '')}`)", inline=True)
+                    embed.add_field(name="Target User", value=f"{target_display} (`{target_id_str}`)", inline=True)
                     embed.add_field(name="Moderator", value=f"{mod_user.mention if mod_user else 'Unknown'}", inline=True)
                     embed.add_field(name="Timeout Expires", value=f"<t:{int(tout_after.timestamp())}:R>", inline=True)
                     embed.add_field(name="Reason", value=reason, inline=False)
@@ -310,7 +320,7 @@ class LoggingSystem(commands.Cog):
                         color=discord.Color.blue(),
                         timestamp=now_utc
                     )
-                    embed.add_field(name="Target User", value=f"{getattr(target, 'mention', str(target))}", inline=True)
+                    embed.add_field(name="Target User", value=f"{target_display}", inline=True)
                     embed.add_field(name="Moderator", value=f"{mod_user.mention if mod_user else 'Unknown'}", inline=True)
                     embed.add_field(name="Reason", value=reason, inline=False)
 
@@ -323,7 +333,7 @@ class LoggingSystem(commands.Cog):
                 color=discord.Color.green() if is_create else discord.Color.red(),
                 timestamp=now_utc
             )
-            embed.add_field(name="Channel Name", value=f"`{getattr(target, 'name', str(target))}`", inline=True)
+            embed.add_field(name="Channel Name", value=f"`{target_display}`", inline=True)
             embed.add_field(name="Moderator", value=f"{mod_user.mention if mod_user else 'Unknown'}", inline=True)
             log_channel = server_log
 
@@ -335,7 +345,7 @@ class LoggingSystem(commands.Cog):
                 color=discord.Color.green() if is_create else discord.Color.red(),
                 timestamp=now_utc
             )
-            embed.add_field(name="Role Name", value=f"`{getattr(target, 'name', str(target))}`", inline=True)
+            embed.add_field(name="Role Name", value=f"`{target_display}`", inline=True)
             embed.add_field(name="Moderator", value=f"{mod_user.mention if mod_user else 'Unknown'}", inline=True)
             log_channel = server_log
 

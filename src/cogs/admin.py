@@ -927,6 +927,7 @@ class SecurityAdmin(commands.GroupCog, name="security"):
         trust_cfg = bot_config.progressive_trust
         link_role = trust_cfg.get("link_gate", {}).get("required_role", "Disabled")
         gif_role = trust_cfg.get("media_and_gif_gate", {}).get("required_role", "Disabled")
+        voice_cfg = bot_config.raw_data.get("voice_protection", {})
 
         embed = discord.Embed(
             title="🛡️ Discord Security Suite Status",

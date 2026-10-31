@@ -12,6 +12,16 @@ from src.config import bot_config
 
 logger = logging.getLogger("security_bot.logging_system")
 
+# Discord Default Soundboard Sounds (built-in sound IDs)
+DEFAULT_SOUNDBOARD_SOUNDS: dict[int, tuple[str, str]] = {
+    1: ("🦆", "Quack"),
+    2: ("📢", "Airhorn"),
+    3: ("🦗", "Cricket"),
+    4: ("👏", "Golf Clap"),
+    5: ("🎺", "Sad Horn"),
+    6: ("🥁", "Ba-Dum Tss"),
+}
+
 class LoggingSystem(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -260,76 +270,145 @@ class LoggingSystem(commands.Cog):
         if vc_state_log_channel:
             vc_target = after.channel or before.channel
             channel_name = f"#{vc_target.name} (`{vc_target.id}`)" if vc_target else "*Unknown Channel*"
+            channel_mention = vc_target.mention if vc_target else channel_name
 
-            # 1. Member Muted / Unmuted Themselves
-            if before.self_mute != after.self_mute:
-                is_muted = after.self_mute
-                m_embed = discord.Embed(
-                    title="🎙️ Member Self-Mute Toggled",
-                    color=discord.Color.red() if is_muted else discord.Color.green(),
+            # 1. Join / Leave / Switch events in VC state channel
+            if before.channel is None and after.channel is not None:
+                j_embed = discord.Embed(
+                    title="🟢 Member Connected to Voice",
+                    color=discord.Color.green(),
                     timestamp=now_ts
                 )
-                m_embed.set_author(name=str(member), icon_url=member.display_avatar.url)
-                m_embed.add_field(name="Member", value=f"{member.mention} (`{member.id}`)", inline=True)
-                m_embed.add_field(name="Status", value="🔴 **Muted Microphone (Self)**" if is_muted else "🟢 **Unmuted Microphone (Speaking)**", inline=True)
-                m_embed.add_field(name="Voice Channel", value=channel_name, inline=False)
-                try:
-                    await vc_state_log_channel.send(embed=m_embed)
-                except Exception as e:
-                    logger.debug("Failed posting vc state mute log: %s", e)
+                j_embed.set_author(name=str(member), icon_url=member.display_avatar.url)
+                j_embed.add_field(name="Member", value=f"{member.mention} (`{member.name}` | `{member.id}`)", inline=True)
+                j_embed.add_field(name="Voice Channel", value=f"{channel_mention} (`#{after.channel.name}`)", inline=True)
 
-            # 2. Member Deafened / Undeafened Themselves
-            if before.self_deaf != after.self_deaf:
-                is_deaf = after.self_deaf
-                d_embed = discord.Embed(
-                    title="🎧 Member Self-Deafen Toggled",
-                    color=discord.Color.dark_red() if is_deaf else discord.Color.green(),
+                states = []
+                states.append("🔴 Self-Muted" if after.self_mute else "🟢 Mic Active")
+                if after.self_deaf:
+                    states.append("🔇 Deafened")
+                if after.self_video:
+                    states.append("📹 Camera ON")
+                if after.self_stream:
+                    states.append("📺 Streaming")
+                j_embed.add_field(name="Initial VC Status", value=" • ".join(states), inline=False)
+                try:
+                    await vc_state_log_channel.send(embed=j_embed)
+                except Exception as e:
+                    logger.debug("Failed posting vc join log: %s", e)
+
+            elif before.channel is not None and after.channel is None:
+                l_embed = discord.Embed(
+                    title="🔴 Member Disconnected from Voice",
+                    color=discord.Color.red(),
                     timestamp=now_ts
                 )
-                d_embed.set_author(name=str(member), icon_url=member.display_avatar.url)
-                d_embed.add_field(name="Member", value=f"{member.mention} (`{member.id}`)", inline=True)
-                d_embed.add_field(name="Status", value="🔇 **Deafened Themselves (Audio Off)**" if is_deaf else "🔈 **Undeafened (Audio Restored)**", inline=True)
-                d_embed.add_field(name="Voice Channel", value=channel_name, inline=False)
+                l_embed.set_author(name=str(member), icon_url=member.display_avatar.url)
+                l_embed.add_field(name="Member", value=f"{member.mention} (`{member.name}` | `{member.id}`)", inline=True)
+                l_embed.add_field(name="Voice Channel", value=f"#{before.channel.name} (`{before.channel.id}`)", inline=True)
                 try:
-                    await vc_state_log_channel.send(embed=d_embed)
+                    await vc_state_log_channel.send(embed=l_embed)
                 except Exception as e:
-                    logger.debug("Failed posting vc state deafen log: %s", e)
+                    logger.debug("Failed posting vc leave log: %s", e)
 
-            # 3. Camera / Video Turned ON or OFF
+            elif before.channel is not None and after.channel is not None and before.channel.id != after.channel.id:
+                sw_embed = discord.Embed(
+                    title="🔄 Member Switched Voice Channel",
+                    color=discord.Color.blue(),
+                    timestamp=now_ts
+                )
+                sw_embed.set_author(name=str(member), icon_url=member.display_avatar.url)
+                sw_embed.add_field(name="Member", value=f"{member.mention} (`{member.name}` | `{member.id}`)", inline=True)
+                sw_embed.add_field(name="Previous Channel", value=f"#{before.channel.name}", inline=True)
+                sw_embed.add_field(name="New Channel", value=f"{after.channel.mention} (`#{after.channel.name}`)", inline=True)
+                try:
+                    await vc_state_log_channel.send(embed=sw_embed)
+                except Exception as e:
+                    logger.debug("Failed posting vc switch log: %s", e)
+
+            # 2. Camera / Video Turned ON or OFF
             if before.self_video != after.self_video:
                 is_video = after.self_video
                 v_embed = discord.Embed(
-                    title="📹 Member Video / Camera Toggled",
-                    color=discord.Color.purple() if is_video else discord.Color.dark_grey(),
+                    title="📹 Camera Turned ON" if is_video else "⬛ Camera Turned OFF",
+                    color=discord.Color.green() if is_video else discord.Color.dark_grey(),
                     timestamp=now_ts
                 )
                 v_embed.set_author(name=str(member), icon_url=member.display_avatar.url)
-                v_embed.add_field(name="Member", value=f"{member.mention} (`{member.id}`)", inline=True)
-                v_embed.add_field(name="Status", value="🎥 **Camera Turned ON**" if is_video else "⬛ **Camera Turned OFF**", inline=True)
-                v_embed.add_field(name="Voice Channel", value=channel_name, inline=False)
+                v_embed.add_field(name="Member", value=f"{member.mention} (`{member.name}` | `{member.id}`)", inline=True)
+                v_embed.add_field(name="Voice Channel", value=f"{channel_mention} (`#{vc_target.name}`)", inline=True)
+                v_embed.add_field(
+                    name="Camera State",
+                    value="🟢 **Video Enabled (Camera Live)**" if is_video else "⚫ **Video Disabled (Camera Off)**",
+                    inline=False
+                )
+                mic_state = "🔴 Muted" if (after.self_mute or after.mute) else "🟢 Unmuted"
+                deaf_state = "🔇 Deafened" if (after.self_deaf or after.deaf) else "🔈 Listening"
+                stream_state = "📺 Streaming" if after.self_stream else "None"
+                v_embed.add_field(name="Mic Status", value=mic_state, inline=True)
+                v_embed.add_field(name="Audio Status", value=deaf_state, inline=True)
+                v_embed.add_field(name="Screenshare", value=stream_state, inline=True)
                 try:
                     await vc_state_log_channel.send(embed=v_embed)
                 except Exception as e:
                     logger.debug("Failed posting vc state video log: %s", e)
 
-            # 4. Screen Share / Streaming Started or Stopped
+            # 3. Screen Share / Streaming Started or Stopped
             if before.self_stream != after.self_stream:
                 is_stream = after.self_stream
                 s_embed = discord.Embed(
-                    title="🖥️ Member Screenshare / Stream Toggled",
-                    color=discord.Color.blurple() if is_stream else discord.Color.dark_grey(),
+                    title="📺 Screen Share Started" if is_stream else "⏹️ Screen Share Ended",
+                    color=discord.Color.purple() if is_stream else discord.Color.dark_grey(),
                     timestamp=now_ts
                 )
                 s_embed.set_author(name=str(member), icon_url=member.display_avatar.url)
-                s_embed.add_field(name="Member", value=f"{member.mention} (`{member.id}`)", inline=True)
-                s_embed.add_field(name="Status", value="📺 **Screenshare / Stream Started**" if is_stream else "⏹️ **Screenshare / Stream Ended**", inline=True)
-                s_embed.add_field(name="Voice Channel", value=channel_name, inline=False)
+                s_embed.add_field(name="Member", value=f"{member.mention} (`{member.name}` | `{member.id}`)", inline=True)
+                s_embed.add_field(name="Voice Channel", value=f"{channel_mention} (`#{vc_target.name}`)", inline=True)
+                s_embed.add_field(
+                    name="Stream Status",
+                    value="📡 **Live Broadcast / Screen Share Active**" if is_stream else "⚫ **Screen Sharing Stopped**",
+                    inline=False
+                )
                 try:
                     await vc_state_log_channel.send(embed=s_embed)
                 except Exception as e:
                     logger.debug("Failed posting vc state stream log: %s", e)
 
-            # 5. Audio / Video Suppressed (Stage or Permission)
+            # 4. Member Muted / Unmuted Themselves
+            if before.self_mute != after.self_mute:
+                is_muted = after.self_mute
+                m_embed = discord.Embed(
+                    title="🎙️ Member Self-Mute: MUTED" if is_muted else "🎙️ Member Self-Mute: UNMUTED",
+                    color=discord.Color.red() if is_muted else discord.Color.green(),
+                    timestamp=now_ts
+                )
+                m_embed.set_author(name=str(member), icon_url=member.display_avatar.url)
+                m_embed.add_field(name="Member", value=f"{member.mention} (`{member.name}` | `{member.id}`)", inline=True)
+                m_embed.add_field(name="Voice Channel", value=f"{channel_mention} (`#{vc_target.name}`)", inline=True)
+                m_embed.add_field(name="Microphone", value="🔴 **Muted Microphone (Self)**" if is_muted else "🟢 **Unmuted Microphone (Speaking)**", inline=False)
+                try:
+                    await vc_state_log_channel.send(embed=m_embed)
+                except Exception as e:
+                    logger.debug("Failed posting vc state mute log: %s", e)
+
+            # 5. Member Deafened / Undeafened Themselves
+            if before.self_deaf != after.self_deaf:
+                is_deaf = after.self_deaf
+                d_embed = discord.Embed(
+                    title="🎧 Member Self-Deafen: DEAFENED" if is_deaf else "🎧 Member Self-Deafen: UNDEAFENED",
+                    color=discord.Color.dark_red() if is_deaf else discord.Color.green(),
+                    timestamp=now_ts
+                )
+                d_embed.set_author(name=str(member), icon_url=member.display_avatar.url)
+                d_embed.add_field(name="Member", value=f"{member.mention} (`{member.name}` | `{member.id}`)", inline=True)
+                d_embed.add_field(name="Voice Channel", value=f"{channel_mention} (`#{vc_target.name}`)", inline=True)
+                d_embed.add_field(name="Headphones", value="🔇 **Deafened Themselves (Audio Off)**" if is_deaf else "🔈 **Undeafened (Audio Restored)**", inline=False)
+                try:
+                    await vc_state_log_channel.send(embed=d_embed)
+                except Exception as e:
+                    logger.debug("Failed posting vc state deafen log: %s", e)
+
+            # 6. Audio / Video Suppressed (Stage or Permission)
             if before.suppress != after.suppress:
                 is_supp = after.suppress
                 sp_embed = discord.Embed(
@@ -338,9 +417,9 @@ class LoggingSystem(commands.Cog):
                     timestamp=now_ts
                 )
                 sp_embed.set_author(name=str(member), icon_url=member.display_avatar.url)
-                sp_embed.add_field(name="Member", value=f"{member.mention} (`{member.id}`)", inline=True)
-                sp_embed.add_field(name="Suppression", value="🔇 **Suppressed by Stage / Moderator**" if is_supp else "🔊 **Suppression Removed**", inline=True)
-                sp_embed.add_field(name="Voice Channel", value=channel_name, inline=False)
+                sp_embed.add_field(name="Member", value=f"{member.mention} (`{member.name}` | `{member.id}`)", inline=True)
+                sp_embed.add_field(name="Voice Channel", value=f"{channel_mention} (`#{vc_target.name}`)", inline=True)
+                sp_embed.add_field(name="Suppression", value="🔇 **Suppressed by Stage / Moderator**" if is_supp else "🔊 **Suppression Removed**", inline=False)
                 try:
                     await vc_state_log_channel.send(embed=sp_embed)
                 except Exception as e:
@@ -374,22 +453,57 @@ class LoggingSystem(commands.Cog):
             timestamp=now_ts
         )
         if avatar_url:
-            embed.set_author(name=user_name, icon_url=avatar_url)
+            embed.set_author(name=f"{user_name} played a sound", icon_url=avatar_url)
 
-        embed.add_field(name="Member", value=f"{user_mention} (`{user_id}`)", inline=True)
+        embed.add_field(name="Member", value=f"{user_mention} (`{user_name}` | `{user_id}`)", inline=True)
         if channel:
-            embed.add_field(name="Voice Channel", value=f"#{channel.name} (`{channel.id}`)", inline=True)
+            embed.add_field(name="Voice Channel", value=f"{channel.mention} (`#{channel.name}`)", inline=True)
 
-        if getattr(effect, "is_sound", False) and getattr(effect, "sound", None):
-            snd = effect.sound
-            snd_name = getattr(snd, "name", "Soundboard Audio")
-            snd_emoji = getattr(snd, "emoji", None)
-            snd_display = f"{snd_emoji} {snd_name}" if snd_emoji else snd_name
-            embed.add_field(name="Sound Effect", value=f"🎵 **{snd_display}**", inline=False)
-            if hasattr(snd, "volume") and snd.volume is not None:
-                vol_pct = int(snd.volume * 100)
-                embed.add_field(name="Volume", value=f"`{vol_pct}%`", inline=True)
-        elif getattr(effect, "emoji", None):
+        if effect.sound is not None:
+            sound = effect.sound
+            sound_id = getattr(sound, "id", None)
+            sound_name = None
+            sound_emoji = "🎵"
+            source_tag = "Custom Server Sound"
+
+            # 1. Check Discord Default Soundboard Sounds (1 to 6)
+            if sound_id in DEFAULT_SOUNDBOARD_SOUNDS:
+                emoji_str, default_name = DEFAULT_SOUNDBOARD_SOUNDS[sound_id]
+                sound_name = default_name
+                sound_emoji = emoji_str
+                source_tag = "Discord Built-In Default"
+            else:
+                # 2. Check current guild's soundboard sounds
+                found = discord.utils.get(guild.soundboard_sounds, id=sound_id)
+                if found:
+                    sound_name = found.name
+                    sound_emoji = str(found.emoji) if found.emoji else "🎵"
+                    source_tag = f"Server Sound ({guild.name})"
+                else:
+                    # 3. Check bot's other shared guilds
+                    for g in self.bot.guilds:
+                        found = discord.utils.get(g.soundboard_sounds, id=sound_id)
+                        if found:
+                            sound_name = found.name
+                            sound_emoji = str(found.emoji) if found.emoji else "🎵"
+                            source_tag = f"External Sound (via {g.name})"
+                            break
+
+            if not sound_name:
+                sound_name = f"Soundboard Track (`{sound_id}`)"
+                source_tag = "External / Nitro Soundboard"
+
+            embed.add_field(name="Sound Title", value=f"{sound_emoji} **{sound_name}**", inline=False)
+            embed.add_field(name="Sound Source", value=f"`{source_tag}`", inline=True)
+
+            vol = getattr(sound, "volume", None)
+            if vol is not None:
+                embed.add_field(name="Volume Played", value=f"`{int(vol * 100)}%`", inline=True)
+
+            if hasattr(sound, "url") and sound.url:
+                embed.add_field(name="Audio File", value=f"[▶️ Click to Listen]({sound.url})", inline=True)
+
+        elif effect.emoji:
             embed.title = "✨ Voice Channel Reaction / Effect"
             embed.add_field(name="Effect Emoji", value=str(effect.emoji), inline=False)
         else:

@@ -438,6 +438,13 @@ class LoggingSystem(commands.Cog):
         if not guild:
             return
 
+        logger.info(
+            "Voice channel effect triggered in guild '%s' (#%s) by user: %s",
+            guild.name,
+            getattr(channel, 'name', 'Unknown Channel'),
+            effect.user
+        )
+
         # Prioritize dedicated vc_state log channel; fall back to voice log channel or alert channel
         log_channel = (
             self._get_target_channel(guild, "vc_state")
@@ -445,6 +452,7 @@ class LoggingSystem(commands.Cog):
             or self.bot.get_channel(bot_config.get_alert_channel_id(guild.id))
         )
         if not log_channel:
+            logger.warning("No log channel available to dispatch soundboard effect in guild %s", guild.id)
             return
 
         user = effect.user
@@ -518,8 +526,9 @@ class LoggingSystem(commands.Cog):
 
         try:
             await log_channel.send(embed=embed)
+            logger.info("Successfully dispatched soundboard log to #%s", log_channel.name)
         except Exception as e:
-            logger.debug("Failed posting voice channel effect log: %s", e)
+            logger.warning("Failed posting voice channel effect log: %s", e)
 
     # ==========================================
     # 3. MEMBER JOIN & LEAVE LOGS

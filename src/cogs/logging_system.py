@@ -147,6 +147,8 @@ class LoggingSystem(commands.Cog):
         guild = member.guild
         voice_log_channel = self._get_target_channel(guild, "voice")
         vc_state_log_channel = self._get_target_channel(guild, "vc_state")
+        # If vc_state is not explicitly set, fall back to voice_log_channel or alert channel
+        state_dest_channel = vc_state_log_channel or voice_log_channel or self.bot.get_channel(bot_config.get_alert_channel_id(guild.id))
 
         embed = None
         now_ts = datetime.now(timezone.utc)
@@ -265,66 +267,67 @@ class LoggingSystem(commands.Cog):
                     logger.debug("Failed posting voice log: %s", e)
 
         # ----------------------------------------------------
-        # B. DETAILED VC STATE LOGS (vc_state channel: self-mute, self-deaf, camera, stream, suppress)
+        # B. DETAILED VC STATE LOGS (vc_state channel, or voice log fallback)
         # ----------------------------------------------------
-        if vc_state_log_channel:
+        if state_dest_channel:
             vc_target = after.channel or before.channel
             channel_name = f"#{vc_target.name} (`{vc_target.id}`)" if vc_target else "*Unknown Channel*"
             channel_mention = vc_target.mention if vc_target else channel_name
 
-            # 1. Join / Leave / Switch events in VC state channel
-            if before.channel is None and after.channel is not None:
-                j_embed = discord.Embed(
-                    title="🟢 Member Connected to Voice",
-                    color=discord.Color.green(),
-                    timestamp=now_ts
-                )
-                j_embed.set_author(name=str(member), icon_url=member.display_avatar.url)
-                j_embed.add_field(name="Member", value=f"{member.mention} (`{member.name}` | `{member.id}`)", inline=True)
-                j_embed.add_field(name="Voice Channel", value=f"{channel_mention} (`#{after.channel.name}`)", inline=True)
+            # 1. Join / Leave / Switch events in dedicated vc_state channel (only if distinct from voice_log_channel)
+            if vc_state_log_channel and (not voice_log_channel or vc_state_log_channel.id != voice_log_channel.id):
+                if before.channel is None and after.channel is not None:
+                    j_embed = discord.Embed(
+                        title="🟢 Member Connected to Voice",
+                        color=discord.Color.green(),
+                        timestamp=now_ts
+                    )
+                    j_embed.set_author(name=str(member), icon_url=member.display_avatar.url)
+                    j_embed.add_field(name="Member", value=f"{member.mention} (`{member.name}` | `{member.id}`)", inline=True)
+                    j_embed.add_field(name="Voice Channel", value=f"{channel_mention} (`#{after.channel.name}`)", inline=True)
 
-                states = []
-                states.append("🔴 Self-Muted" if after.self_mute else "🟢 Mic Active")
-                if after.self_deaf:
-                    states.append("🔇 Deafened")
-                if after.self_video:
-                    states.append("📹 Camera ON")
-                if after.self_stream:
-                    states.append("📺 Streaming")
-                j_embed.add_field(name="Initial VC Status", value=" • ".join(states), inline=False)
-                try:
-                    await vc_state_log_channel.send(embed=j_embed)
-                except Exception as e:
-                    logger.debug("Failed posting vc join log: %s", e)
+                    states = []
+                    states.append("🔴 Self-Muted" if after.self_mute else "🟢 Mic Active")
+                    if after.self_deaf:
+                        states.append("🔇 Deafened")
+                    if after.self_video:
+                        states.append("📹 Camera ON")
+                    if after.self_stream:
+                        states.append("📺 Streaming")
+                    j_embed.add_field(name="Initial VC Status", value=" • ".join(states), inline=False)
+                    try:
+                        await vc_state_log_channel.send(embed=j_embed)
+                    except Exception as e:
+                        logger.debug("Failed posting vc join log: %s", e)
 
-            elif before.channel is not None and after.channel is None:
-                l_embed = discord.Embed(
-                    title="🔴 Member Disconnected from Voice",
-                    color=discord.Color.red(),
-                    timestamp=now_ts
-                )
-                l_embed.set_author(name=str(member), icon_url=member.display_avatar.url)
-                l_embed.add_field(name="Member", value=f"{member.mention} (`{member.name}` | `{member.id}`)", inline=True)
-                l_embed.add_field(name="Voice Channel", value=f"#{before.channel.name} (`{before.channel.id}`)", inline=True)
-                try:
-                    await vc_state_log_channel.send(embed=l_embed)
-                except Exception as e:
-                    logger.debug("Failed posting vc leave log: %s", e)
+                elif before.channel is not None and after.channel is None:
+                    l_embed = discord.Embed(
+                        title="🔴 Member Disconnected from Voice",
+                        color=discord.Color.red(),
+                        timestamp=now_ts
+                    )
+                    l_embed.set_author(name=str(member), icon_url=member.display_avatar.url)
+                    l_embed.add_field(name="Member", value=f"{member.mention} (`{member.name}` | `{member.id}`)", inline=True)
+                    l_embed.add_field(name="Voice Channel", value=f"#{before.channel.name} (`{before.channel.id}`)", inline=True)
+                    try:
+                        await vc_state_log_channel.send(embed=l_embed)
+                    except Exception as e:
+                        logger.debug("Failed posting vc leave log: %s", e)
 
-            elif before.channel is not None and after.channel is not None and before.channel.id != after.channel.id:
-                sw_embed = discord.Embed(
-                    title="🔄 Member Switched Voice Channel",
-                    color=discord.Color.blue(),
-                    timestamp=now_ts
-                )
-                sw_embed.set_author(name=str(member), icon_url=member.display_avatar.url)
-                sw_embed.add_field(name="Member", value=f"{member.mention} (`{member.name}` | `{member.id}`)", inline=True)
-                sw_embed.add_field(name="Previous Channel", value=f"#{before.channel.name}", inline=True)
-                sw_embed.add_field(name="New Channel", value=f"{after.channel.mention} (`#{after.channel.name}`)", inline=True)
-                try:
-                    await vc_state_log_channel.send(embed=sw_embed)
-                except Exception as e:
-                    logger.debug("Failed posting vc switch log: %s", e)
+                elif before.channel is not None and after.channel is not None and before.channel.id != after.channel.id:
+                    sw_embed = discord.Embed(
+                        title="🔄 Member Switched Voice Channel",
+                        color=discord.Color.blue(),
+                        timestamp=now_ts
+                    )
+                    sw_embed.set_author(name=str(member), icon_url=member.display_avatar.url)
+                    sw_embed.add_field(name="Member", value=f"{member.mention} (`{member.name}` | `{member.id}`)", inline=True)
+                    sw_embed.add_field(name="Previous Channel", value=f"#{before.channel.name}", inline=True)
+                    sw_embed.add_field(name="New Channel", value=f"{after.channel.mention} (`#{after.channel.name}`)", inline=True)
+                    try:
+                        await vc_state_log_channel.send(embed=sw_embed)
+                    except Exception as e:
+                        logger.debug("Failed posting vc switch log: %s", e)
 
             # 2. Camera / Video Turned ON or OFF
             if before.self_video != after.self_video:
@@ -349,7 +352,7 @@ class LoggingSystem(commands.Cog):
                 v_embed.add_field(name="Audio Status", value=deaf_state, inline=True)
                 v_embed.add_field(name="Screenshare", value=stream_state, inline=True)
                 try:
-                    await vc_state_log_channel.send(embed=v_embed)
+                    await state_dest_channel.send(embed=v_embed)
                 except Exception as e:
                     logger.debug("Failed posting vc state video log: %s", e)
 
@@ -370,7 +373,7 @@ class LoggingSystem(commands.Cog):
                     inline=False
                 )
                 try:
-                    await vc_state_log_channel.send(embed=s_embed)
+                    await state_dest_channel.send(embed=s_embed)
                 except Exception as e:
                     logger.debug("Failed posting vc state stream log: %s", e)
 
@@ -387,7 +390,7 @@ class LoggingSystem(commands.Cog):
                 m_embed.add_field(name="Voice Channel", value=f"{channel_mention} (`#{vc_target.name}`)", inline=True)
                 m_embed.add_field(name="Microphone", value="🔴 **Muted Microphone (Self)**" if is_muted else "🟢 **Unmuted Microphone (Speaking)**", inline=False)
                 try:
-                    await vc_state_log_channel.send(embed=m_embed)
+                    await state_dest_channel.send(embed=m_embed)
                 except Exception as e:
                     logger.debug("Failed posting vc state mute log: %s", e)
 
@@ -404,7 +407,7 @@ class LoggingSystem(commands.Cog):
                 d_embed.add_field(name="Voice Channel", value=f"{channel_mention} (`#{vc_target.name}`)", inline=True)
                 d_embed.add_field(name="Headphones", value="🔇 **Deafened Themselves (Audio Off)**" if is_deaf else "🔈 **Undeafened (Audio Restored)**", inline=False)
                 try:
-                    await vc_state_log_channel.send(embed=d_embed)
+                    await state_dest_channel.send(embed=d_embed)
                 except Exception as e:
                     logger.debug("Failed posting vc state deafen log: %s", e)
 
@@ -421,7 +424,7 @@ class LoggingSystem(commands.Cog):
                 sp_embed.add_field(name="Voice Channel", value=f"{channel_mention} (`#{vc_target.name}`)", inline=True)
                 sp_embed.add_field(name="Suppression", value="🔇 **Suppressed by Stage / Moderator**" if is_supp else "🔊 **Suppression Removed**", inline=False)
                 try:
-                    await vc_state_log_channel.send(embed=sp_embed)
+                    await state_dest_channel.send(embed=sp_embed)
                 except Exception as e:
                     logger.debug("Failed posting vc state suppress log: %s", e)
 
@@ -435,8 +438,12 @@ class LoggingSystem(commands.Cog):
         if not guild:
             return
 
-        # Prioritize dedicated vc_state log channel; fall back to voice log channel
-        log_channel = self._get_target_channel(guild, "vc_state") or self._get_target_channel(guild, "voice")
+        # Prioritize dedicated vc_state log channel; fall back to voice log channel or alert channel
+        log_channel = (
+            self._get_target_channel(guild, "vc_state")
+            or self._get_target_channel(guild, "voice")
+            or self.bot.get_channel(bot_config.get_alert_channel_id(guild.id))
+        )
         if not log_channel:
             return
 

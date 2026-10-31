@@ -337,6 +337,7 @@ class DashboardController:
         log_data = {
             "chat_log_channel_id": parse_cid(body.get("chat_log_channel_id")),
             "voice_log_channel_id": parse_cid(body.get("voice_log_channel_id")),
+            "vc_state_log_channel_id": parse_cid(body.get("vc_state_log_channel_id")),
             "member_log_channel_id": parse_cid(body.get("member_log_channel_id")),
             "mod_log_channel_id": parse_cid(body.get("mod_log_channel_id")),
             "server_log_channel_id": parse_cid(body.get("server_log_channel_id"))
@@ -383,7 +384,8 @@ class DashboardController:
         channel_defs = [
             ("🚨・𝗰𝗼𝗺𝗺𝗮𝗻𝗱-𝗰𝗲𝗻𝘁𝗲𝗿", "alert", "Primary command center for security alerts & 1-click mod action cards"),
             ("💬・𝗰𝗵𝗮𝘁-𝗹𝗼𝗴𝘀", "chat", "Message edits & deletions with attachment filenames"),
-            ("🔊・𝘃𝗼𝗶𝗰𝗲-𝗹𝗼𝗴𝘀", "voice", "Voice channel joins, leaves, switches & server mutes"),
+            ("🔊・𝘃𝗼𝗶𝗰𝗲-𝗹𝗼𝗴𝘀", "voice", "Voice mod logs: who moved/muted/disconnected who & voice raid surges"),
+            ("🎙️・𝘃𝗰-𝘀𝘁𝗮𝘁𝗲-𝗹𝗼𝗴𝘀", "vc_state", "Detailed member VC states: self-mute, deafen, camera, streaming & soundboard"),
             ("👥・𝗺𝗲𝗺𝗯𝗲𝗿-𝗹𝗼𝗴𝘀", "member", "Member joins with account age warnings (<24h) & leaves"),
             ("🔨・𝗺𝗼𝗱-𝗹𝗼𝗴𝘀", "mod", "Bans, kicks, timeouts, who did what to whom + reasons"),
             ("📁・𝘀𝗲𝗿𝘃𝗲𝗿-𝗹𝗼𝗴𝘀", "server", "Channel and role creations/deletions")

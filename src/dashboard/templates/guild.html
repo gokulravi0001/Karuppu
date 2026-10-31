@@ -147,13 +147,24 @@
                     </select>
                 </div>
 
-                <!-- Voice Logs -->
+                <!-- Voice Moderation Logs -->
                 <div>
-                    <label class="block text-xs font-semibold uppercase text-gray-400 mb-2">🔊 Voice Logs (VC Joins/Leaves/Switches)</label>
+                    <label class="block text-xs font-semibold uppercase text-gray-400 mb-2">🔊 Voice Mod Logs (Moves/Mutes/Disconnects)</label>
                     <select name="voice_log_channel_id" class="w-full bg-discord-dark border border-gray-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-discord-blurple">
                         <option value="0">Select a channel...</option>
                         {% for ch in channels %}
                         <option value="{{ ch.id }}" {% if settings.voice_log_channel_id == ch.id %}selected{% endif %}>#{{ ch.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <!-- VC State Logs (Self-Mute/Deaf, Video, Soundboard) -->
+                <div>
+                    <label class="block text-xs font-semibold uppercase text-gray-400 mb-2">🎙️ VC State Logs (Self-Mute/Deaf, Camera, Soundboard)</label>
+                    <select name="vc_state_log_channel_id" class="w-full bg-discord-dark border border-gray-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-discord-blurple">
+                        <option value="0">Select a channel...</option>
+                        {% for ch in channels %}
+                        <option value="{{ ch.id }}" {% if settings.vc_state_log_channel_id == ch.id %}selected{% endif %}>#{{ ch.name }}</option>
                         {% endfor %}
                     </select>
                 </div>

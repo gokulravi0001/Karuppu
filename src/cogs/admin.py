@@ -508,7 +508,8 @@ class SecurityAdmin(commands.GroupCog, name="security"):
     )
     @app_commands.choices(category=[
         app_commands.Choice(name="💬 Chat Logs (Message Edits & Deletions)", value="chat"),
-        app_commands.Choice(name="🔊 Voice Logs (VC Joins, Leaves & Switches)", value="voice"),
+        app_commands.Choice(name="🔊 Voice Logs (VC Joins, Disconnects, Moves & Server Mutes)", value="voice"),
+        app_commands.Choice(name="🎙️ VC State Logs (Self-Mute/Deaf, Video, Soundboard)", value="vc_state"),
         app_commands.Choice(name="👥 Member Logs (Joins, Leaves & Account Age)", value="member"),
         app_commands.Choice(name="🔨 Mod Logs (Bans, Kicks, Timeouts & Reasons)", value="mod"),
         app_commands.Choice(name="📁 Server Logs (Channel & Role Changes)", value="server"),
@@ -584,7 +585,8 @@ class SecurityAdmin(commands.GroupCog, name="security"):
         channel_defs = [
             ("🚨・𝗰𝗼𝗺𝗺𝗮𝗻𝗱-𝗰𝗲𝗻𝘁𝗲𝗿", "alert", "Primary command center for security alerts, raid warnings & 1-click mod action cards"),
             ("💬・𝗰𝗵𝗮𝘁-𝗹𝗼𝗴𝘀", "chat", "Message edits & deletions with attachment filenames"),
-            ("🔊・𝘃𝗼𝗶𝗰𝗲-𝗹𝗼𝗴𝘀", "voice", "Voice channel joins, leaves, switches & server mutes"),
+            ("🔊・𝘃𝗼𝗶𝗰𝗲-𝗹𝗼𝗴𝘀", "voice", "Voice mod logs: who moved/muted/disconnected who & voice raid surges"),
+            ("🎙️・𝘃𝗰-𝘀𝘁𝗮𝘁𝗲-𝗹𝗼𝗴𝘀", "vc_state", "Detailed member VC states: self-mute, deafen, camera, streaming & soundboard"),
             ("👥・𝗺𝗲𝗺𝗯𝗲𝗿-𝗹𝗼𝗴𝘀", "member", "Member joins with account age warnings (<24h) & leaves"),
             ("🔨・𝗺𝗼𝗱-𝗹𝗼𝗴𝘀", "mod", "Bans, kicks, timeouts, who did what to whom + reasons"),
             ("📁・𝘀𝗲𝗿𝘃𝗲𝗿-𝗹𝗼𝗴𝘀", "server", "Channel and role creations/deletions")
@@ -620,7 +622,8 @@ class SecurityAdmin(commands.GroupCog, name="security"):
                     "### 📁 Active Operations Channels:\n"
                     f"• {created_channels['alert'].mention} — Live raid alerts, phishing alerts, and interactive mod action cards\n"
                     f"• {created_channels['chat'].mention} — Message edits & deletions with before/after comparison\n"
-                    f"• {created_channels['voice'].mention} — VC joins, leaves, and channel switching records\n"
+                    f"• {created_channels['voice'].mention} — Voice moderation: who moved, server-muted, or disconnected who\n"
+                    f"• {created_channels['vc_state'].mention} — Detailed VC states: self-mute, self-deaf, camera, screenshare & soundboard\n"
                     f"• {created_channels['member'].mention} — Member joins with **New Account (<24h)** badges & leave logs\n"
                     f"• {created_channels['mod'].mention} — Bans, kicks, and timeouts with moderator and reason details\n"
                     f"• {created_channels['server'].mention} — Server channel & role modifications\n\n"
@@ -679,7 +682,8 @@ class SecurityAdmin(commands.GroupCog, name="security"):
 
             log_defs = [
                 ("chat-logs", "chat", "Message edits & deletions"),
-                ("voice-logs", "voice", "VC joins, leaves & switches"),
+                ("voice-logs", "voice", "Voice mod logs: who moved/muted/disconnected who"),
+                ("vc-state-logs", "vc_state", "Detailed member VC states: self-mute, deafen, camera, stream & soundboard"),
                 ("join-leave-logs", "member", "Member joins, leaves & account age warnings"),
                 ("mod-logs", "mod", "Bans, kicks, timeouts, who did what to whom + reasons"),
                 ("server-logs", "server", "Channel and role creations/deletions")
@@ -751,14 +755,15 @@ class SecurityAdmin(commands.GroupCog, name="security"):
             name="📑 Dedicated Log Channels",
             value=(
                 f"• **Chat Logs (Edits/Deletes):** {_format_ch('chat')}\n"
-                f"• **Voice Logs (VC Join/Leave/Switch):** {_format_ch('voice')}\n"
+                f"• **Voice Mod Logs (Moves/Mutes/Disconnects):** {_format_ch('voice')}\n"
+                f"• **VC State Logs (Self-Mute/Deaf/Video/Sound):** {_format_ch('vc_state')}\n"
                 f"• **Member Logs (Join/Leave + Age):** {_format_ch('member')}\n"
                 f"• **Mod Logs (Bans/Kicks/Timeouts):** {_format_ch('mod')}\n"
                 f"• **Server Logs (Channel/Role Changes):** {_format_ch('server')}"
             ),
             inline=False
         )
-        unmute_role_id = settings.get("unmute_role_id")
+        unmute_role_id = g_cfg.get("unmute_role_id")
         unmute_str = f"<@&{unmute_role_id}>" if unmute_role_id else "*None (Owner & Admins only)*"
         embed.add_field(name="🔊 Reverse-Mute Authority Role", value=unmute_str, inline=False)
         embed.add_field(

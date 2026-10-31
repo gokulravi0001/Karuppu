@@ -165,7 +165,7 @@ class BotConfig:
         return self.alert_channel_id
 
     def get_log_channel_id(self, guild_id: Optional[int], category: str) -> Optional[int]:
-        """Returns dedicated channel ID for category (chat, voice, member, mod, server), falling back to alert channel."""
+        """Returns dedicated channel ID for category (chat, voice, vc_state, member, mod, server), falling back to alert channel."""
         col = f"{category}_log_channel_id"
         if guild_id and guild_id in self.guild_settings_cache:
             ch_id = self.guild_settings_cache[guild_id].get(col)

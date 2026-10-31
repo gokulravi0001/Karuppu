@@ -72,6 +72,7 @@ class AuditDatabase:
                     invite_role_name TEXT,
                     chat_log_channel_id INTEGER,
                     voice_log_channel_id INTEGER,
+                    vc_state_log_channel_id INTEGER,
                     member_log_channel_id INTEGER,
                     mod_log_channel_id INTEGER,
                     server_log_channel_id INTEGER
@@ -82,6 +83,7 @@ class AuditDatabase:
             log_cols = [
                 ("chat_log_channel_id", "INTEGER"),
                 ("voice_log_channel_id", "INTEGER"),
+                ("vc_state_log_channel_id", "INTEGER"),
                 ("member_log_channel_id", "INTEGER"),
                 ("mod_log_channel_id", "INTEGER"),
                 ("server_log_channel_id", "INTEGER"),
@@ -203,10 +205,11 @@ class AuditDatabase:
             await db.commit()
 
     async def set_log_channel(self, guild_id: int, log_category: str, channel_id: int) -> None:
-        """Sets a specialized log channel (chat, voice, member, mod, server)."""
+        """Sets a specialized log channel (chat, voice, vc_state, member, mod, server)."""
         valid_cols = {
             "chat": "chat_log_channel_id",
             "voice": "voice_log_channel_id",
+            "vc_state": "vc_state_log_channel_id",
             "member": "member_log_channel_id",
             "mod": "mod_log_channel_id",
             "server": "server_log_channel_id"
@@ -290,20 +293,22 @@ class AuditDatabase:
             await db.commit()
 
     async def update_all_log_channels(self, guild_id: int, log_data: Dict[str, int]) -> None:
-        """Updates all 5 specialized log channels for a guild at once."""
+        """Updates all specialized log channels for a guild at once."""
         async with aiosqlite.connect(self.db_path) as db:
             await db.execute("""
                 INSERT INTO guild_settings (
                     guild_id,
                     chat_log_channel_id,
                     voice_log_channel_id,
+                    vc_state_log_channel_id,
                     member_log_channel_id,
                     mod_log_channel_id,
                     server_log_channel_id
-                ) VALUES (?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(guild_id) DO UPDATE SET
                     chat_log_channel_id = excluded.chat_log_channel_id,
                     voice_log_channel_id = excluded.voice_log_channel_id,
+                    vc_state_log_channel_id = excluded.vc_state_log_channel_id,
                     member_log_channel_id = excluded.member_log_channel_id,
                     mod_log_channel_id = excluded.mod_log_channel_id,
                     server_log_channel_id = excluded.server_log_channel_id;
@@ -311,6 +316,7 @@ class AuditDatabase:
                 guild_id,
                 log_data.get("chat_log_channel_id"),
                 log_data.get("voice_log_channel_id"),
+                log_data.get("vc_state_log_channel_id"),
                 log_data.get("member_log_channel_id"),
                 log_data.get("mod_log_channel_id"),
                 log_data.get("server_log_channel_id")

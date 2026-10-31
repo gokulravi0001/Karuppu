@@ -325,6 +325,7 @@ class TestLoggingSystemConfig(unittest.TestCase):
         bot_config.guild_settings_cache[9999] = {
             "chat_log_channel_id": 101,
             "voice_log_channel_id": 102,
+            "vc_state_log_channel_id": 106,
             "member_log_channel_id": 103,
             "mod_log_channel_id": 104,
             "server_log_channel_id": 105
@@ -332,7 +333,10 @@ class TestLoggingSystemConfig(unittest.TestCase):
 
         self.assertEqual(bot_config.get_log_channel_id(9999, "chat"), 101)
         self.assertEqual(bot_config.get_log_channel_id(9999, "voice"), 102)
+        self.assertEqual(bot_config.get_log_channel_id(9999, "vc_state"), 106)
         self.assertEqual(bot_config.get_log_channel_id(9999, "member"), 103)
+        self.assertEqual(bot_config.get_log_channel_id(9999, "mod"), 104)
+        self.assertEqual(bot_config.get_log_channel_id(9999, "server"), 105)
 
     def test_unmute_authority_role_permission(self):
         from src.config import bot_config

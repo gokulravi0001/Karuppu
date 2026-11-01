@@ -413,13 +413,15 @@ class SecurityAdmin(commands.GroupCog, name="security"):
             await interaction.response.send_message(f"❌ {member.mention} is not currently connected to any voice channel.", ephemeral=True)
             return
 
+        await interaction.response.defer()
+
         vc_channel = member.voice.channel
         channel_name = vc_channel.name
 
         try:
             await member.move_to(None, reason=f"VC Kick by {interaction.user}: {reason}")
         except Exception as e:
-            await interaction.response.send_message(f"❌ Failed to disconnect member: `{e}`", ephemeral=True)
+            await interaction.followup.send(f"❌ Failed to disconnect member: `{e}`")
             return
 
         await db.log_incident(
@@ -446,7 +448,7 @@ class SecurityAdmin(commands.GroupCog, name="security"):
         )
         embed.set_thumbnail(url=member.display_avatar.url)
         embed.set_footer(text="VC moderation action logged")
-        await interaction.response.send_message(embed=embed)
+        await interaction.followup.send(embed=embed)
 
         log_ch_id = bot_config.get_log_channel_id(guild.id, "mod") or bot_config.get_log_channel_id(guild.id, "voice")
         if log_ch_id and log_ch_id != interaction.channel_id:
@@ -491,6 +493,8 @@ class SecurityAdmin(commands.GroupCog, name="security"):
         if not me.guild_permissions.move_members:
             await interaction.response.send_message("❌ Bot lacks the **'Move Members'** permission to disconnect members.", ephemeral=True)
             return
+
+        await interaction.response.defer()
 
         now_utc = datetime.now(timezone.utc)
         expires_at = now_utc + timedelta(minutes=duration_minutes)
@@ -566,7 +570,7 @@ class SecurityAdmin(commands.GroupCog, name="security"):
             timestamp=now_utc
         )
         embed.set_thumbnail(url=member.display_avatar.url)
-        await interaction.response.send_message(embed=embed)
+        await interaction.followup.send(embed=embed)
 
         log_ch_id = bot_config.get_log_channel_id(guild.id, "mod") or bot_config.get_log_channel_id(guild.id, "voice")
         if log_ch_id and log_ch_id != interaction.channel_id:
@@ -595,6 +599,8 @@ class SecurityAdmin(commands.GroupCog, name="security"):
             await interaction.response.send_message("❌ Moderator permissions required.", ephemeral=True)
             return
 
+        await interaction.response.defer()
+
         guild = interaction.guild
         removed = await db.remove_vc_punishment(guild.id, member.id, "timeout")
         bot_config.vc_punishments_cache.pop((guild.id, member.id), None)
@@ -607,7 +613,7 @@ class SecurityAdmin(commands.GroupCog, name="security"):
                 pass
 
         if not removed:
-            await interaction.response.send_message(f"ℹ️ {member.mention} does not have an active VC timeout.", ephemeral=True)
+            await interaction.followup.send(f"ℹ️ {member.mention} does not have an active VC timeout.", ephemeral=True)
             return
 
         embed = discord.Embed(
@@ -622,7 +628,7 @@ class SecurityAdmin(commands.GroupCog, name="security"):
             timestamp=datetime.now(timezone.utc)
         )
         embed.set_thumbnail(url=member.display_avatar.url)
-        await interaction.response.send_message(embed=embed)
+        await interaction.followup.send(embed=embed)
 
     @app_commands.command(
         name="vc_ban",
@@ -654,6 +660,8 @@ class SecurityAdmin(commands.GroupCog, name="security"):
         if not me.guild_permissions.move_members:
             await interaction.response.send_message("❌ Bot lacks the **'Move Members'** permission to disconnect members.", ephemeral=True)
             return
+
+        await interaction.response.defer()
 
         now_utc = datetime.now(timezone.utc)
         expires_iso = None
@@ -730,7 +738,7 @@ class SecurityAdmin(commands.GroupCog, name="security"):
             timestamp=now_utc
         )
         embed.set_thumbnail(url=member.display_avatar.url)
-        await interaction.response.send_message(embed=embed)
+        await interaction.followup.send(embed=embed)
 
         log_ch_id = bot_config.get_log_channel_id(guild.id, "mod") or bot_config.get_log_channel_id(guild.id, "voice")
         if log_ch_id and log_ch_id != interaction.channel_id:
@@ -759,6 +767,8 @@ class SecurityAdmin(commands.GroupCog, name="security"):
             await interaction.response.send_message("❌ Moderator permissions required.", ephemeral=True)
             return
 
+        await interaction.response.defer()
+
         guild = interaction.guild
         removed = await db.remove_vc_punishment(guild.id, user.id, "ban")
         bot_config.vc_punishments_cache.pop((guild.id, user.id), None)
@@ -771,7 +781,7 @@ class SecurityAdmin(commands.GroupCog, name="security"):
                 pass
 
         if not removed:
-            await interaction.response.send_message(f"ℹ️ {user.mention} is not currently VC banned.", ephemeral=True)
+            await interaction.followup.send(f"ℹ️ {user.mention} is not currently VC banned.", ephemeral=True)
             return
 
         embed = discord.Embed(
@@ -786,7 +796,7 @@ class SecurityAdmin(commands.GroupCog, name="security"):
             timestamp=datetime.now(timezone.utc)
         )
         embed.set_thumbnail(url=user.display_avatar.url)
-        await interaction.response.send_message(embed=embed)
+        await interaction.followup.send(embed=embed)
 
     @app_commands.command(
         name="vc_banlist",
@@ -797,11 +807,13 @@ class SecurityAdmin(commands.GroupCog, name="security"):
             await interaction.response.send_message("❌ Moderator permissions required.", ephemeral=True)
             return
 
+        await interaction.response.defer(ephemeral=True)
+
         guild = interaction.guild
         punishments = await db.get_active_vc_punishments(guild.id)
 
         if not punishments:
-            await interaction.response.send_message("ℹ️ There are no active voice channel bans or timeouts in this server.", ephemeral=True)
+            await interaction.followup.send("ℹ️ There are no active voice channel bans or timeouts in this server.", ephemeral=True)
             return
 
         lines = []
@@ -826,7 +838,7 @@ class SecurityAdmin(commands.GroupCog, name="security"):
             lines.append(f"{icon} **{p_type}** | <@{u_id}> (`{u_id}`)\n└ {duration_part} • *\"{reason}\"*")
 
         if not lines:
-            await interaction.response.send_message("ℹ️ There are no active voice channel bans or timeouts in this server.", ephemeral=True)
+            await interaction.followup.send("ℹ️ There are no active voice channel bans or timeouts in this server.", ephemeral=True)
             return
 
         embed = discord.Embed(
@@ -837,7 +849,7 @@ class SecurityAdmin(commands.GroupCog, name="security"):
         )
         if len(lines) > 15:
             embed.set_footer(text=f"Showing 15 of {len(lines)} active voice punishments")
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        await interaction.followup.send(embed=embed, ephemeral=True)
 
     # ==========================================
     # 24/7 VOICE GUARD CONNECTION COMMANDS

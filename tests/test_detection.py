@@ -359,5 +359,107 @@ class TestLoggingSystemConfig(unittest.TestCase):
         self.assertIsNone(bot_config.get_log_channel_id(8888, "chat"))
 
 
+class TestVCPunishments(unittest.TestCase):
+    def test_vc_blocking_and_expiration(self):
+        from src.config import bot_config
+        guild_id = 98765
+        user_a = 11111
+        user_b = 22222
+        user_c = 33333
+
+        # 1. Permanent ban
+        bot_config.vc_punishments_cache[(guild_id, user_a)] = {
+            "punishment_type": "vc_ban",
+            "moderator_id": 999,
+            "reason": "Trolling VC",
+            "expires_at": None
+        }
+
+        # 2. Active timeout (expires in 10 minutes)
+        future_exp = (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat()
+        bot_config.vc_punishments_cache[(guild_id, user_b)] = {
+            "punishment_type": "vc_timeout",
+            "moderator_id": 999,
+            "reason": "Mic spam",
+            "expires_at": future_exp
+        }
+
+        # 3. Expired timeout (expired 5 minutes ago)
+        past_exp = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
+        bot_config.vc_punishments_cache[(guild_id, user_c)] = {
+            "punishment_type": "vc_timeout",
+            "moderator_id": 999,
+            "reason": "Old timeout",
+            "expires_at": past_exp
+        }
+
+        # Verify user_a is blocked
+        blocked_a = bot_config.is_vc_blocked(guild_id, user_a)
+        self.assertIsNotNone(blocked_a)
+        self.assertEqual(blocked_a["punishment_type"], "vc_ban")
+
+        # Verify user_b is blocked
+        blocked_b = bot_config.is_vc_blocked(guild_id, user_b)
+        self.assertIsNotNone(blocked_b)
+        self.assertEqual(blocked_b["punishment_type"], "vc_timeout")
+
+        # Verify user_c is expired and unblocked automatically
+        blocked_c = bot_config.is_vc_blocked(guild_id, user_c)
+        self.assertIsNone(blocked_c)
+        self.assertNotIn((guild_id, user_c), bot_config.vc_punishments_cache)
+
+        # Non-punished user
+        self.assertIsNone(bot_config.is_vc_blocked(guild_id, 44444))
+
+    def test_vc_punishment_schema_and_queries(self):
+        import sqlite3
+        conn = sqlite3.connect(":memory:")
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            CREATE TABLE vc_punishments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                guild_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                punishment_type TEXT NOT NULL,
+                moderator_id INTEGER NOT NULL,
+                reason TEXT,
+                created_at TEXT NOT NULL,
+                expires_at TEXT,
+                UNIQUE(guild_id, user_id, punishment_type)
+            );
+        """)
+
+        # Insert VC Ban
+        cursor.execute("""
+            INSERT INTO vc_punishments (guild_id, user_id, punishment_type, moderator_id, reason, created_at, expires_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (1001, 2001, "vc_ban", 3001, "Raiding", "2026-11-01T12:00:00", None))
+
+        # Query active punishment
+        cursor.execute("SELECT punishment_type, reason FROM vc_punishments WHERE guild_id = ? AND user_id = ?", (1001, 2001))
+        row = cursor.fetchone()
+        self.assertIsNotNone(row)
+        self.assertEqual(row[0], "vc_ban")
+        self.assertEqual(row[1], "Raiding")
+
+        # Conflict resolution / update
+        cursor.execute("""
+            INSERT INTO vc_punishments (guild_id, user_id, punishment_type, moderator_id, reason, created_at, expires_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(guild_id, user_id, punishment_type) DO UPDATE SET
+                reason = excluded.reason
+        """, (1001, 2001, "vc_ban", 3001, "Updated Reason", "2026-11-01T12:05:00", None))
+
+        cursor.execute("SELECT reason FROM vc_punishments WHERE guild_id = ? AND user_id = ?", (1001, 2001))
+        self.assertEqual(cursor.fetchone()[0], "Updated Reason")
+
+        # Delete
+        cursor.execute("DELETE FROM vc_punishments WHERE guild_id = ? AND user_id = ?", (1001, 2001))
+        cursor.execute("SELECT * FROM vc_punishments WHERE guild_id = ? AND user_id = ?", (1001, 2001))
+        self.assertIsNone(cursor.fetchone())
+        conn.close()
+
+
 if __name__ == "__main__":
     unittest.main()

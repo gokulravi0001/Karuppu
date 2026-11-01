@@ -79,6 +79,22 @@ class AuditDatabase:
                 );
             """)
 
+            # Voice Channel Punishments (VC Ban and VC Timeout)
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS vc_punishments (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    guild_id INTEGER NOT NULL,
+                    user_id INTEGER NOT NULL,
+                    punishment_type TEXT NOT NULL, -- 'ban' or 'timeout'
+                    moderator_id INTEGER NOT NULL,
+                    reason TEXT,
+                    created_at TEXT NOT NULL,
+                    expires_at TEXT, -- NULL for permanent ban, or ISO timestamp for timeout / temp-ban
+                    UNIQUE(guild_id, user_id, punishment_type)
+                );
+            """)
+            await db.execute("CREATE INDEX IF NOT EXISTS idx_vc_punish ON vc_punishments(guild_id, user_id);")
+
             # Ensure columns exist in existing database tables (automatic migration)
             log_cols = [
                 ("chat_log_channel_id", "INTEGER"),
@@ -363,6 +379,73 @@ class AuditDatabase:
                 async with db.execute("SELECT * FROM dynamic_bypasses ORDER BY added_at DESC") as cursor:
                     rows = await cursor.fetchall()
             return [dict(row) for row in rows]
+
+    async def add_vc_punishment(
+        self,
+        guild_id: int,
+        user_id: int,
+        punishment_type: str,
+        moderator_id: int,
+        reason: str,
+        expires_at: Optional[str] = None
+    ) -> None:
+        """Adds or updates a voice channel ban or timeout for a user in a guild."""
+        created_at = datetime.now(timezone.utc).isoformat()
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute("""
+                INSERT INTO vc_punishments (
+                    guild_id, user_id, punishment_type, moderator_id, reason, created_at, expires_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(guild_id, user_id, punishment_type) DO UPDATE SET
+                    moderator_id = excluded.moderator_id,
+                    reason = excluded.reason,
+                    created_at = excluded.created_at,
+                    expires_at = excluded.expires_at;
+            """, (guild_id, user_id, punishment_type, moderator_id, reason, created_at, expires_at))
+            await db.commit()
+
+    async def remove_vc_punishment(self, guild_id: int, user_id: int, punishment_type: Optional[str] = None) -> bool:
+        """Removes a voice channel punishment (ban/timeout) for a user."""
+        async with aiosqlite.connect(self.db_path) as db:
+            if punishment_type:
+                cursor = await db.execute("""
+                    DELETE FROM vc_punishments
+                    WHERE guild_id = ? AND user_id = ? AND punishment_type = ?
+                """, (guild_id, user_id, punishment_type))
+            else:
+                cursor = await db.execute("""
+                    DELETE FROM vc_punishments
+                    WHERE guild_id = ? AND user_id = ?
+                """, (guild_id, user_id))
+            await db.commit()
+            return (cursor.rowcount or 0) > 0
+
+    async def get_active_vc_punishments(self, guild_id: Optional[int] = None) -> List[Dict[str, Any]]:
+        """Retrieves active voice channel bans and timeouts."""
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            if guild_id is not None:
+                query = "SELECT * FROM vc_punishments WHERE guild_id = ? ORDER BY created_at DESC"
+                params = (guild_id,)
+            else:
+                query = "SELECT * FROM vc_punishments ORDER BY created_at DESC"
+                params = ()
+            async with db.execute(query, params) as cursor:
+                rows = await cursor.fetchall()
+                return [dict(r) for r in rows]
+
+    async def get_user_vc_punishment(self, guild_id: int, user_id: int) -> Optional[Dict[str, Any]]:
+        """Checks if a user has an active VC ban or timeout in a guild."""
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute("""
+                SELECT * FROM vc_punishments
+                WHERE guild_id = ? AND user_id = ?
+                ORDER BY CASE punishment_type WHEN 'ban' THEN 1 ELSE 2 END ASC
+                LIMIT 1
+            """, (guild_id, user_id)) as cursor:
+                row = await cursor.fetchone()
+                return dict(row) if row else None
 
     async def prune_old_records(self, retention_days: int = 30) -> int:
         """Prunes incident logs older than retention period for privacy compliance."""

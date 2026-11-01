@@ -92,6 +92,23 @@ class SecurityBot(commands.Bot):
         except Exception as e:
             logger.error("Failed loading guild settings: %s", e)
 
+        # 2b. Load Active Voice Channel Punishments (VC Bans and Timeouts)
+        try:
+            active_punishments = await db.get_active_vc_punishments()
+            now_utc = datetime.now(timezone.utc)
+            for p in active_punishments:
+                exp = p.get("expires_at")
+                if exp:
+                    try:
+                        if now_utc >= datetime.fromisoformat(exp):
+                            continue
+                    except Exception:
+                        pass
+                bot_config.vc_punishments_cache[(p["guild_id"], p["user_id"])] = p
+            logger.info("Loaded %d active VC punishments into cache", len(bot_config.vc_punishments_cache))
+        except Exception as e:
+            logger.error("Failed loading active VC punishments: %s", e)
+
         # 3. Load Security Cogs
         extensions = [
             "src.cogs.moderation_view",
@@ -122,8 +139,51 @@ class SecurityBot(commands.Bot):
         # 4. Start health check server
         await self._start_healthcheck_server()
 
-        # 5. Start maintenance loop
+        # 5. Start maintenance loop and VC punishment expiry monitor
         self.maintenance_task.start()
+        self.vc_punishment_expiry_task.start()
+
+    @tasks.loop(seconds=30)
+    async def vc_punishment_expiry_task(self):
+        """Monitors and automatically lifts expired voice channel timeouts."""
+        now_utc = datetime.now(timezone.utc)
+        expired_keys = []
+        for key, punishment in list(bot_config.vc_punishments_cache.items()):
+            exp_str = punishment.get("expires_at")
+            if not exp_str:
+                continue
+            try:
+                exp_dt = datetime.fromisoformat(exp_str)
+                if now_utc >= exp_dt:
+                    expired_keys.append((key, punishment))
+            except Exception:
+                pass
+
+        for (guild_id, user_id), punishment in expired_keys:
+            bot_config.vc_punishments_cache.pop((guild_id, user_id), None)
+            await db.remove_vc_punishment(guild_id, user_id, punishment.get("punishment_type"))
+            guild = self.get_guild(guild_id)
+            if guild:
+                member = guild.get_member(user_id)
+                if member and member.voice and member.voice.mute:
+                    try:
+                        await member.edit(mute=False, reason="VC Timeout auto-expired")
+                    except Exception:
+                        pass
+                log_ch_id = bot_config.get_log_channel_id(guild_id, "mod") or bot_config.get_log_channel_id(guild_id, "voice")
+                if log_ch_id:
+                    ch = guild.get_channel(log_ch_id)
+                    if isinstance(ch, discord.TextChannel):
+                        embed = discord.Embed(
+                            title="🔊 Voice Channel Timeout Expired",
+                            color=discord.Color.green(),
+                            description=f"<@{user_id}>'s voice timeout has expired. Voice channel access restored.",
+                            timestamp=now_utc
+                        )
+                        try:
+                            await ch.send(embed=embed)
+                        except Exception:
+                            pass
 
     @tasks.loop(hours=24)
     async def maintenance_task(self):

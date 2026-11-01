@@ -2,6 +2,7 @@
 import os
 import yaml
 import logging
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Set
 import discord
 from dotenv import load_dotenv
@@ -44,6 +45,7 @@ class BotConfig:
         self.dynamic_bypass_users: Set[int] = set()
         self.dynamic_bypass_channels: Set[int] = set()
         self.guild_settings_cache: Dict[int, Dict[str, Any]] = {}
+        self.vc_punishments_cache: Dict[Tuple[int, int], Dict[str, Any]] = {}
         self.load()
 
     def load(self) -> None:
@@ -172,6 +174,22 @@ class BotConfig:
             if ch_id:
                 return int(ch_id)
         return None
+
+    def is_vc_blocked(self, guild_id: int, user_id: int) -> Optional[Dict[str, Any]]:
+        """Checks if a user is currently VC banned or timed out in a guild."""
+        entry = self.vc_punishments_cache.get((guild_id, user_id))
+        if not entry:
+            return None
+        expires_at = entry.get("expires_at")
+        if expires_at:
+            try:
+                exp_dt = datetime.fromisoformat(expires_at)
+                if datetime.now(timezone.utc) >= exp_dt:
+                    del self.vc_punishments_cache[(guild_id, user_id)]
+                    return None
+            except Exception:
+                pass
+        return entry
 
     def is_dry_run(self, guild_id: Optional[int]) -> bool:
         """Returns the dry run status for a specific guild, falling back to default."""

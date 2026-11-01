@@ -150,6 +150,18 @@ class LoggingSystem(commands.Cog):
         # If vc_state is not explicitly set, fall back to voice_log_channel or alert channel
         state_dest_channel = vc_state_log_channel or voice_log_channel or self.bot.get_channel(bot_config.get_alert_channel_id(guild.id))
 
+        # Enforce active VC bans and timeouts (instantly disconnect punished users attempting to join VC)
+        if after.channel is not None:
+            block = bot_config.is_vc_blocked(guild.id, member.id)
+            if block:
+                p_type = block.get("punishment_type", "restriction")
+                reason = block.get("reason", "Voice channel moderation enforcement")
+                try:
+                    await member.move_to(None, reason=f"Active VC {p_type.capitalize()}: {reason}")
+                except Exception as e:
+                    logger.debug("Failed disconnecting VC-blocked member %s: %s", member.id, e)
+                return
+
         embed = None
         now_ts = datetime.now(timezone.utc)
 

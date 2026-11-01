@@ -2,6 +2,7 @@
 Handles owner-only bypass configuration, lockdown triggers, dry-run toggles, and security health audits.
 """
 import logging
+from datetime import datetime, timezone, timedelta
 from typing import Optional
 import discord
 from discord import app_commands
@@ -415,49 +416,53 @@ class SecurityAdmin(commands.GroupCog, name="security"):
 
         await interaction.response.defer()
 
-        vc_channel = member.voice.channel
-        channel_name = vc_channel.name
-
         try:
-            await member.move_to(None, reason=f"VC Kick by {interaction.user}: {reason}")
+            vc_channel = member.voice.channel
+            channel_name = vc_channel.name
+
+            try:
+                await member.move_to(None, reason=f"VC Kick by {interaction.user}: {reason}")
+            except Exception as e:
+                await interaction.followup.send(f"❌ Failed to disconnect member: `{e}`")
+                return
+
+            await db.log_incident(
+                guild_id=guild.id,
+                user_id=member.id,
+                username=str(member),
+                rule_triggered="Voice Channel Kick",
+                confidence="HIGH (Staff Action)",
+                raw_evidence=f"Kicked from #{channel_name} by {interaction.user} ({interaction.user.id}) | Reason: {reason}",
+                action_taken=f"VC Kick by {interaction.user}",
+                moderator_id=interaction.user.id
+            )
+
+            embed = discord.Embed(
+                title="🔌 Member Kicked from Voice",
+                color=discord.Color.orange(),
+                description=(
+                    f"**Member:** {member.mention} (`{member.id}`)\n"
+                    f"**Disconnected From:** `#{channel_name}`\n"
+                    f"**Moderator:** {interaction.user.mention}\n"
+                    f"**Reason:** {reason}"
+                ),
+                timestamp=datetime.now(timezone.utc)
+            )
+            embed.set_thumbnail(url=member.display_avatar.url)
+            embed.set_footer(text="VC moderation action logged")
+            await interaction.followup.send(embed=embed)
+
+            log_ch_id = bot_config.get_log_channel_id(guild.id, "mod") or bot_config.get_log_channel_id(guild.id, "voice")
+            if log_ch_id and log_ch_id != interaction.channel_id:
+                ch = guild.get_channel(log_ch_id)
+                if isinstance(ch, discord.TextChannel):
+                    try:
+                        await ch.send(embed=embed)
+                    except Exception:
+                        pass
         except Exception as e:
-            await interaction.followup.send(f"❌ Failed to disconnect member: `{e}`")
-            return
-
-        await db.log_incident(
-            guild_id=guild.id,
-            user_id=member.id,
-            username=str(member),
-            rule_triggered="Voice Channel Kick",
-            confidence="HIGH (Staff Action)",
-            raw_evidence=f"Kicked from #{channel_name} by {interaction.user} ({interaction.user.id}) | Reason: {reason}",
-            action_taken=f"VC Kick by {interaction.user}",
-            moderator_id=interaction.user.id
-        )
-
-        embed = discord.Embed(
-            title="🔌 Member Kicked from Voice",
-            color=discord.Color.orange(),
-            description=(
-                f"**Member:** {member.mention} (`{member.id}`)\n"
-                f"**Disconnected From:** `#{channel_name}`\n"
-                f"**Moderator:** {interaction.user.mention}\n"
-                f"**Reason:** {reason}"
-            ),
-            timestamp=datetime.now(timezone.utc)
-        )
-        embed.set_thumbnail(url=member.display_avatar.url)
-        embed.set_footer(text="VC moderation action logged")
-        await interaction.followup.send(embed=embed)
-
-        log_ch_id = bot_config.get_log_channel_id(guild.id, "mod") or bot_config.get_log_channel_id(guild.id, "voice")
-        if log_ch_id and log_ch_id != interaction.channel_id:
-            ch = guild.get_channel(log_ch_id)
-            if isinstance(ch, discord.TextChannel):
-                try:
-                    await ch.send(embed=embed)
-                except Exception:
-                    pass
+            logger.exception("Error executing cmd_vc_kick: %s", e)
+            await interaction.followup.send(f"❌ Error executing VC kick: `{e}`", ephemeral=True)
 
     @app_commands.command(
         name="vc_timeout",
@@ -496,90 +501,94 @@ class SecurityAdmin(commands.GroupCog, name="security"):
 
         await interaction.response.defer()
 
-        now_utc = datetime.now(timezone.utc)
-        expires_at = now_utc + timedelta(minutes=duration_minutes)
-        expires_iso = expires_at.isoformat()
-
-        # Disconnect if currently in voice
-        vc_name = "None"
-        if member.voice and member.voice.channel:
-            vc_name = member.voice.channel.name
-            try:
-                await member.move_to(None, reason=f"VC Timeout by {interaction.user}: {reason}")
-            except Exception:
-                pass
-
-        # Apply voice server mute if bot has permission
-        if me.guild_permissions.mute_members:
-            try:
-                await member.edit(mute=True, reason=f"VC Timeout: {reason}")
-            except Exception:
-                pass
-
-        await db.add_vc_punishment(
-            guild_id=guild.id,
-            user_id=member.id,
-            punishment_type="timeout",
-            moderator_id=interaction.user.id,
-            reason=reason,
-            expires_at=expires_iso
-        )
-        bot_config.vc_punishments_cache[(guild.id, member.id)] = {
-            "punishment_type": "timeout",
-            "reason": reason,
-            "expires_at": expires_iso,
-            "moderator_id": interaction.user.id
-        }
-
-        await db.log_incident(
-            guild_id=guild.id,
-            user_id=member.id,
-            username=str(member),
-            rule_triggered="Voice Channel Timeout",
-            confidence="HIGH (Staff Action)",
-            raw_evidence=f"Timed out for {duration_minutes}m by {interaction.user} | Active VC: #{vc_name} | Reason: {reason}",
-            action_taken=f"VC Timeout ({duration_minutes}m)",
-            moderator_id=interaction.user.id
-        )
-
         try:
-            dm_embed = discord.Embed(
-                title=f"⏳ You have been timed out from Voice Channels in {guild.name}",
-                color=discord.Color.red(),
-                description=(
-                    f"**Duration:** `{duration_minutes}` minutes\n"
-                    f"**Expires:** <t:{int(expires_at.timestamp())}:R>\n"
-                    f"**Reason:** {reason}\n\n"
-                    f"You will not be able to join voice channels in **{guild.name}** until the timeout expires."
-                )
-            )
-            await member.send(embed=dm_embed)
-        except Exception:
-            pass
+            now_utc = datetime.now(timezone.utc)
+            expires_at = now_utc + timedelta(minutes=duration_minutes)
+            expires_iso = expires_at.isoformat()
 
-        embed = discord.Embed(
-            title="⏳ Member Voice Timeout Applied",
-            color=discord.Color.red(),
-            description=(
-                f"**Member:** {member.mention} (`{member.id}`)\n"
-                f"**Duration:** `{duration_minutes}` minutes (Expires <t:{int(expires_at.timestamp())}:R>)\n"
-                f"**Moderator:** {interaction.user.mention}\n"
-                f"**Reason:** {reason}\n\n"
-                f"🔒 {member.mention} is blocked from all voice channels until the timeout expires."
-            ),
-            timestamp=now_utc
-        )
-        embed.set_thumbnail(url=member.display_avatar.url)
-        await interaction.followup.send(embed=embed)
-
-        log_ch_id = bot_config.get_log_channel_id(guild.id, "mod") or bot_config.get_log_channel_id(guild.id, "voice")
-        if log_ch_id and log_ch_id != interaction.channel_id:
-            ch = guild.get_channel(log_ch_id)
-            if isinstance(ch, discord.TextChannel):
+            # Disconnect if currently in voice
+            vc_name = "None"
+            if member.voice and member.voice.channel:
+                vc_name = member.voice.channel.name
                 try:
-                    await ch.send(embed=embed)
+                    await member.move_to(None, reason=f"VC Timeout by {interaction.user}: {reason}")
                 except Exception:
                     pass
+
+            # Apply voice server mute if bot has permission
+            if me.guild_permissions.mute_members:
+                try:
+                    await member.edit(mute=True, reason=f"VC Timeout: {reason}")
+                except Exception:
+                    pass
+
+            await db.add_vc_punishment(
+                guild_id=guild.id,
+                user_id=member.id,
+                punishment_type="timeout",
+                moderator_id=interaction.user.id,
+                reason=reason,
+                expires_at=expires_iso
+            )
+            bot_config.vc_punishments_cache[(guild.id, member.id)] = {
+                "punishment_type": "timeout",
+                "reason": reason,
+                "expires_at": expires_iso,
+                "moderator_id": interaction.user.id
+            }
+
+            await db.log_incident(
+                guild_id=guild.id,
+                user_id=member.id,
+                username=str(member),
+                rule_triggered="Voice Channel Timeout",
+                confidence="HIGH (Staff Action)",
+                raw_evidence=f"Timed out for {duration_minutes}m by {interaction.user} | Active VC: #{vc_name} | Reason: {reason}",
+                action_taken=f"VC Timeout ({duration_minutes}m)",
+                moderator_id=interaction.user.id
+            )
+
+            try:
+                dm_embed = discord.Embed(
+                    title=f"⏳ You have been timed out from Voice Channels in {guild.name}",
+                    color=discord.Color.red(),
+                    description=(
+                        f"**Duration:** `{duration_minutes}` minutes\n"
+                        f"**Expires:** <t:{int(expires_at.timestamp())}:R>\n"
+                        f"**Reason:** {reason}\n\n"
+                        f"You will not be able to join voice channels in **{guild.name}** until the timeout expires."
+                    )
+                )
+                await member.send(embed=dm_embed)
+            except Exception:
+                pass
+
+            embed = discord.Embed(
+                title="⏳ Member Voice Timeout Applied",
+                color=discord.Color.red(),
+                description=(
+                    f"**Member:** {member.mention} (`{member.id}`)\n"
+                    f"**Duration:** `{duration_minutes}` minutes (Expires <t:{int(expires_at.timestamp())}:R>)\n"
+                    f"**Moderator:** {interaction.user.mention}\n"
+                    f"**Reason:** {reason}\n\n"
+                    f"🔒 {member.mention} is blocked from all voice channels until the timeout expires."
+                ),
+                timestamp=now_utc
+            )
+            embed.set_thumbnail(url=member.display_avatar.url)
+            await interaction.followup.send(embed=embed)
+
+            log_ch_id = bot_config.get_log_channel_id(guild.id, "mod") or bot_config.get_log_channel_id(guild.id, "voice")
+            if log_ch_id and log_ch_id != interaction.channel_id:
+                ch = guild.get_channel(log_ch_id)
+                if isinstance(ch, discord.TextChannel):
+                    try:
+                        await ch.send(embed=embed)
+                    except Exception:
+                        pass
+        except Exception as e:
+            logger.exception("Error executing cmd_vc_timeout: %s", e)
+            await interaction.followup.send(f"❌ Error applying voice timeout: `{e}`", ephemeral=True)
 
     @app_commands.command(
         name="vc_untimeout",
@@ -601,34 +610,38 @@ class SecurityAdmin(commands.GroupCog, name="security"):
 
         await interaction.response.defer()
 
-        guild = interaction.guild
-        removed = await db.remove_vc_punishment(guild.id, member.id, "timeout")
-        bot_config.vc_punishments_cache.pop((guild.id, member.id), None)
+        try:
+            guild = interaction.guild
+            removed = await db.remove_vc_punishment(guild.id, member.id, "timeout")
+            bot_config.vc_punishments_cache.pop((guild.id, member.id), None)
 
-        me = guild.me
-        if me.guild_permissions.mute_members:
-            try:
-                await member.edit(mute=False, reason=f"VC Untimeout by {interaction.user}: {reason}")
-            except Exception:
-                pass
+            me = guild.me
+            if me.guild_permissions.mute_members:
+                try:
+                    await member.edit(mute=False, reason=f"VC Untimeout by {interaction.user}: {reason}")
+                except Exception:
+                    pass
 
-        if not removed:
-            await interaction.followup.send(f"ℹ️ {member.mention} does not have an active VC timeout.", ephemeral=True)
-            return
+            if not removed:
+                await interaction.followup.send(f"ℹ️ {member.mention} does not have an active VC timeout.", ephemeral=True)
+                return
 
-        embed = discord.Embed(
-            title="🔊 Voice Timeout Removed",
-            color=discord.Color.green(),
-            description=(
-                f"**Member:** {member.mention} (`{member.id}`)\n"
-                f"**Moderator:** {interaction.user.mention}\n"
-                f"**Reason:** {reason}\n\n"
-                f"✅ Voice channel access has been fully restored."
-            ),
-            timestamp=datetime.now(timezone.utc)
-        )
-        embed.set_thumbnail(url=member.display_avatar.url)
-        await interaction.followup.send(embed=embed)
+            embed = discord.Embed(
+                title="🔊 Voice Timeout Removed",
+                color=discord.Color.green(),
+                description=(
+                    f"**Member:** {member.mention} (`{member.id}`)\n"
+                    f"**Moderator:** {interaction.user.mention}\n"
+                    f"**Reason:** {reason}\n\n"
+                    f"✅ Voice channel access has been fully restored."
+                ),
+                timestamp=datetime.now(timezone.utc)
+            )
+            embed.set_thumbnail(url=member.display_avatar.url)
+            await interaction.followup.send(embed=embed)
+        except Exception as e:
+            logger.exception("Error executing cmd_vc_untimeout: %s", e)
+            await interaction.followup.send(f"❌ Error lifting voice timeout: `{e}`", ephemeral=True)
 
     @app_commands.command(
         name="vc_ban",
@@ -663,91 +676,95 @@ class SecurityAdmin(commands.GroupCog, name="security"):
 
         await interaction.response.defer()
 
-        now_utc = datetime.now(timezone.utc)
-        expires_iso = None
-        duration_str = "Permanent"
-        if duration_hours and duration_hours > 0:
-            expires_at = now_utc + timedelta(hours=duration_hours)
-            expires_iso = expires_at.isoformat()
-            duration_str = f"{duration_hours} hours (Expires <t:{int(expires_at.timestamp())}:R>)"
-
-        # Disconnect if currently in voice
-        if member.voice and member.voice.channel:
-            try:
-                await member.move_to(None, reason=f"VC Ban by {interaction.user}: {reason}")
-            except Exception:
-                pass
-
-        # Apply voice server mute
-        if me.guild_permissions.mute_members:
-            try:
-                await member.edit(mute=True, reason=f"VC Ban: {reason}")
-            except Exception:
-                pass
-
-        await db.add_vc_punishment(
-            guild_id=guild.id,
-            user_id=member.id,
-            punishment_type="ban",
-            moderator_id=interaction.user.id,
-            reason=reason,
-            expires_at=expires_iso
-        )
-        bot_config.vc_punishments_cache[(guild.id, member.id)] = {
-            "punishment_type": "ban",
-            "reason": reason,
-            "expires_at": expires_iso,
-            "moderator_id": interaction.user.id
-        }
-
-        await db.log_incident(
-            guild_id=guild.id,
-            user_id=member.id,
-            username=str(member),
-            rule_triggered="Voice Channel Ban",
-            confidence="HIGH (Staff Action)",
-            raw_evidence=f"VC Banned ({duration_str}) by {interaction.user} | Reason: {reason}",
-            action_taken=f"VC Ban ({duration_str})",
-            moderator_id=interaction.user.id
-        )
-
         try:
-            dm_embed = discord.Embed(
-                title=f"🔨 You have been banned from Voice Channels in {guild.name}",
-                color=discord.Color.dark_red(),
-                description=(
-                    f"**Duration:** {duration_str}\n"
-                    f"**Reason:** {reason}\n\n"
-                    f"You are strictly prohibited from joining voice channels in **{guild.name}**."
-                )
-            )
-            await member.send(embed=dm_embed)
-        except Exception:
-            pass
+            now_utc = datetime.now(timezone.utc)
+            expires_iso = None
+            duration_str = "Permanent"
+            if duration_hours and duration_hours > 0:
+                expires_at = now_utc + timedelta(hours=duration_hours)
+                expires_iso = expires_at.isoformat()
+                duration_str = f"{duration_hours} hours (Expires <t:{int(expires_at.timestamp())}:R>)"
 
-        embed = discord.Embed(
-            title="🔨 Member Banned from Voice Channels",
-            color=discord.Color.dark_red(),
-            description=(
-                f"**Member:** {member.mention} (`{member.id}`)\n"
-                f"**Duration:** {duration_str}\n"
-                f"**Moderator:** {interaction.user.mention}\n"
-                f"**Reason:** {reason}\n\n"
-                f"🚫 {member.mention} will be instantly disconnected if they attempt to join any voice channel."
-            ),
-            timestamp=now_utc
-        )
-        embed.set_thumbnail(url=member.display_avatar.url)
-        await interaction.followup.send(embed=embed)
-
-        log_ch_id = bot_config.get_log_channel_id(guild.id, "mod") or bot_config.get_log_channel_id(guild.id, "voice")
-        if log_ch_id and log_ch_id != interaction.channel_id:
-            ch = guild.get_channel(log_ch_id)
-            if isinstance(ch, discord.TextChannel):
+            # Disconnect if currently in voice
+            if member.voice and member.voice.channel:
                 try:
-                    await ch.send(embed=embed)
+                    await member.move_to(None, reason=f"VC Ban by {interaction.user}: {reason}")
                 except Exception:
                     pass
+
+            # Apply voice server mute
+            if me.guild_permissions.mute_members:
+                try:
+                    await member.edit(mute=True, reason=f"VC Ban: {reason}")
+                except Exception:
+                    pass
+
+            await db.add_vc_punishment(
+                guild_id=guild.id,
+                user_id=member.id,
+                punishment_type="ban",
+                moderator_id=interaction.user.id,
+                reason=reason,
+                expires_at=expires_iso
+            )
+            bot_config.vc_punishments_cache[(guild.id, member.id)] = {
+                "punishment_type": "ban",
+                "reason": reason,
+                "expires_at": expires_iso,
+                "moderator_id": interaction.user.id
+            }
+
+            await db.log_incident(
+                guild_id=guild.id,
+                user_id=member.id,
+                username=str(member),
+                rule_triggered="Voice Channel Ban",
+                confidence="HIGH (Staff Action)",
+                raw_evidence=f"VC Banned ({duration_str}) by {interaction.user} | Reason: {reason}",
+                action_taken=f"VC Ban ({duration_str})",
+                moderator_id=interaction.user.id
+            )
+
+            try:
+                dm_embed = discord.Embed(
+                    title=f"🔨 You have been banned from Voice Channels in {guild.name}",
+                    color=discord.Color.dark_red(),
+                    description=(
+                        f"**Duration:** {duration_str}\n"
+                        f"**Reason:** {reason}\n\n"
+                        f"You are strictly prohibited from joining voice channels in **{guild.name}**."
+                    )
+                )
+                await member.send(embed=dm_embed)
+            except Exception:
+                pass
+
+            embed = discord.Embed(
+                title="🔨 Member Banned from Voice Channels",
+                color=discord.Color.dark_red(),
+                description=(
+                    f"**Member:** {member.mention} (`{member.id}`)\n"
+                    f"**Duration:** {duration_str}\n"
+                    f"**Moderator:** {interaction.user.mention}\n"
+                    f"**Reason:** {reason}\n\n"
+                    f"🚫 {member.mention} will be instantly disconnected if they attempt to join any voice channel."
+                ),
+                timestamp=now_utc
+            )
+            embed.set_thumbnail(url=member.display_avatar.url)
+            await interaction.followup.send(embed=embed)
+
+            log_ch_id = bot_config.get_log_channel_id(guild.id, "mod") or bot_config.get_log_channel_id(guild.id, "voice")
+            if log_ch_id and log_ch_id != interaction.channel_id:
+                ch = guild.get_channel(log_ch_id)
+                if isinstance(ch, discord.TextChannel):
+                    try:
+                        await ch.send(embed=embed)
+                    except Exception:
+                        pass
+        except Exception as e:
+            logger.exception("Error executing cmd_vc_ban: %s", e)
+            await interaction.followup.send(f"❌ Error applying voice ban: `{e}`", ephemeral=True)
 
     @app_commands.command(
         name="vc_unban",
@@ -769,34 +786,38 @@ class SecurityAdmin(commands.GroupCog, name="security"):
 
         await interaction.response.defer()
 
-        guild = interaction.guild
-        removed = await db.remove_vc_punishment(guild.id, user.id, "ban")
-        bot_config.vc_punishments_cache.pop((guild.id, user.id), None)
+        try:
+            guild = interaction.guild
+            removed = await db.remove_vc_punishment(guild.id, user.id, "ban")
+            bot_config.vc_punishments_cache.pop((guild.id, user.id), None)
 
-        member = guild.get_member(user.id)
-        if member and guild.me.guild_permissions.mute_members:
-            try:
-                await member.edit(mute=False, reason=f"VC Unban by {interaction.user}: {reason}")
-            except Exception:
-                pass
+            member = guild.get_member(user.id)
+            if member and guild.me.guild_permissions.mute_members:
+                try:
+                    await member.edit(mute=False, reason=f"VC Unban by {interaction.user}: {reason}")
+                except Exception:
+                    pass
 
-        if not removed:
-            await interaction.followup.send(f"ℹ️ {user.mention} is not currently VC banned.", ephemeral=True)
-            return
+            if not removed:
+                await interaction.followup.send(f"ℹ️ {user.mention} is not currently VC banned.", ephemeral=True)
+                return
 
-        embed = discord.Embed(
-            title="✅ Voice Channel Ban Revoked",
-            color=discord.Color.green(),
-            description=(
-                f"**User:** {user.mention} (`{user.id}`)\n"
-                f"**Moderator:** {interaction.user.mention}\n"
-                f"**Reason:** {reason}\n\n"
-                f"Voice channel ban has been lifted. User can now join voice channels."
-            ),
-            timestamp=datetime.now(timezone.utc)
-        )
-        embed.set_thumbnail(url=user.display_avatar.url)
-        await interaction.followup.send(embed=embed)
+            embed = discord.Embed(
+                title="✅ Voice Channel Ban Revoked",
+                color=discord.Color.green(),
+                description=(
+                    f"**User:** {user.mention} (`{user.id}`)\n"
+                    f"**Moderator:** {interaction.user.mention}\n"
+                    f"**Reason:** {reason}\n\n"
+                    f"Voice channel ban has been lifted. User can now join voice channels."
+                ),
+                timestamp=datetime.now(timezone.utc)
+            )
+            embed.set_thumbnail(url=user.display_avatar.url)
+            await interaction.followup.send(embed=embed)
+        except Exception as e:
+            logger.exception("Error executing cmd_vc_unban: %s", e)
+            await interaction.followup.send(f"❌ Error revoking voice ban: `{e}`", ephemeral=True)
 
     @app_commands.command(
         name="vc_banlist",
@@ -809,47 +830,51 @@ class SecurityAdmin(commands.GroupCog, name="security"):
 
         await interaction.response.defer(ephemeral=True)
 
-        guild = interaction.guild
-        punishments = await db.get_active_vc_punishments(guild.id)
+        try:
+            guild = interaction.guild
+            punishments = await db.get_active_vc_punishments(guild.id)
 
-        if not punishments:
-            await interaction.followup.send("ℹ️ There are no active voice channel bans or timeouts in this server.", ephemeral=True)
-            return
+            if not punishments:
+                await interaction.followup.send("ℹ️ There are no active voice channel bans or timeouts in this server.", ephemeral=True)
+                return
 
-        lines = []
-        now_utc = datetime.now(timezone.utc)
-        for p in punishments:
-            u_id = p["user_id"]
-            p_type = p["punishment_type"].upper()
-            icon = "🔨" if p_type == "BAN" else "⏳"
-            reason = p.get("reason", "No reason provided")
-            exp_str = p.get("expires_at")
-            if exp_str:
-                try:
-                    exp_dt = datetime.fromisoformat(exp_str)
-                    if now_utc >= exp_dt:
-                        continue  # Expired
-                    duration_part = f"Expires <t:{int(exp_dt.timestamp())}:R>"
-                except Exception:
-                    duration_part = "Temporary"
-            else:
-                duration_part = "**Permanent**"
+            lines = []
+            now_utc = datetime.now(timezone.utc)
+            for p in punishments:
+                u_id = p["user_id"]
+                p_type = p["punishment_type"].upper()
+                icon = "🔨" if p_type == "BAN" else "⏳"
+                reason = p.get("reason", "No reason provided")
+                exp_str = p.get("expires_at")
+                if exp_str:
+                    try:
+                        exp_dt = datetime.fromisoformat(exp_str)
+                        if now_utc >= exp_dt:
+                            continue  # Expired
+                        duration_part = f"Expires <t:{int(exp_dt.timestamp())}:R>"
+                    except Exception:
+                        duration_part = "Temporary"
+                else:
+                    duration_part = "**Permanent**"
 
-            lines.append(f"{icon} **{p_type}** | <@{u_id}> (`{u_id}`)\n└ {duration_part} • *\"{reason}\"*")
+                lines.append(f"{icon} **{p_type}** | <@{u_id}> (`{u_id}`)\n└ {duration_part} • *\"{reason}\"*")
 
-        if not lines:
-            await interaction.followup.send("ℹ️ There are no active voice channel bans or timeouts in this server.", ephemeral=True)
-            return
+            if not lines:
+                await interaction.followup.send("ℹ️ There are no active voice channel bans or timeouts in this server.", ephemeral=True)
+                return
 
-        embed = discord.Embed(
-            title=f"🛡️ Active Voice Punishments ({len(lines)})",
-            color=discord.Color.dark_red(),
-            description="\n\n".join(lines[:15]),
-            timestamp=now_utc
-        )
-        if len(lines) > 15:
-            embed.set_footer(text=f"Showing 15 of {len(lines)} active voice punishments")
-        await interaction.followup.send(embed=embed, ephemeral=True)
+            embed = discord.Embed(
+                title=f"🛡️ Active Voice Punishments ({len(lines)})",
+                color=discord.Color.dark_red(),
+                description="\n\n".join(lines[:15]),
+                timestamp=now_utc
+            )
+            if len(lines) > 15:
+                embed.set_footer(text=f"Showing 15 of {len(lines)} active voice punishments")
+            await interaction.followup.send(embed=embed, ephemeral=True)
+        except Exception as e:
+            logger.exception("Error executing cmd_vc_banlist: %s", e)
+            await interaction.followup.send(f"❌ Error fetching active voice punishments: `{e}`", ephemeral=True)
 
     # ==========================================
     # 24/7 VOICE GUARD CONNECTION COMMANDS

@@ -95,6 +95,17 @@ class AuditDatabase:
             """)
             await db.execute("CREATE INDEX IF NOT EXISTS idx_vc_punish ON vc_punishments(guild_id, user_id);")
 
+            # Dedicated Granular Log Channels (Complete 24-Channel Logging Suite)
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS guild_log_channels (
+                    guild_id INTEGER NOT NULL,
+                    log_type TEXT NOT NULL,
+                    channel_id INTEGER NOT NULL,
+                    PRIMARY KEY (guild_id, log_type)
+                );
+            """)
+            await db.execute("CREATE INDEX IF NOT EXISTS idx_log_chan ON guild_log_channels(guild_id, log_type);")
+
             # Ensure columns exist in existing database tables (automatic migration)
             log_cols = [
                 ("chat_log_channel_id", "INTEGER"),
@@ -338,6 +349,44 @@ class AuditDatabase:
                 log_data.get("server_log_channel_id")
             ))
             await db.commit()
+
+    async def set_dedicated_log_channel(self, guild_id: int, log_type: str, channel_id: Optional[int]) -> None:
+        """Sets or removes a dedicated log channel for a specific log type."""
+        async with aiosqlite.connect(self.db_path) as db:
+            if channel_id is not None:
+                await db.execute("""
+                    INSERT INTO guild_log_channels (guild_id, log_type, channel_id)
+                    VALUES (?, ?, ?)
+                    ON CONFLICT(guild_id, log_type) DO UPDATE SET channel_id = excluded.channel_id;
+                """, (guild_id, log_type, channel_id))
+            else:
+                await db.execute("DELETE FROM guild_log_channels WHERE guild_id = ? AND log_type = ?;", (guild_id, log_type))
+            await db.commit()
+
+    async def bulk_set_log_channels(self, guild_id: int, channel_map: Dict[str, int]) -> None:
+        """Sets multiple dedicated log channels in one transaction."""
+        async with aiosqlite.connect(self.db_path) as db:
+            for log_type, ch_id in channel_map.items():
+                await db.execute("""
+                    INSERT INTO guild_log_channels (guild_id, log_type, channel_id)
+                    VALUES (?, ?, ?)
+                    ON CONFLICT(guild_id, log_type) DO UPDATE SET channel_id = excluded.channel_id;
+                """, (guild_id, log_type, ch_id))
+            await db.commit()
+
+    async def get_all_guild_log_channels(self, guild_id: Optional[int] = None) -> List[Dict[str, Any]]:
+        """Retrieves all dedicated log channels."""
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            if guild_id is not None:
+                query = "SELECT * FROM guild_log_channels WHERE guild_id = ?"
+                params = (guild_id,)
+            else:
+                query = "SELECT * FROM guild_log_channels"
+                params = ()
+            async with db.execute(query, params) as cursor:
+                rows = await cursor.fetchall()
+                return [dict(r) for r in rows]
 
     async def add_dynamic_bypass(self, bypass_type: str, target_id: int, target_name: str, added_by: int, guild_id: int = 0) -> bool:
         """Inserts an owner-authorized bypass entry for a specific guild."""

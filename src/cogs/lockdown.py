@@ -145,7 +145,7 @@ class ServerLockdown(commands.Cog):
                 success, msg = await self.lift_lockdown(guild, moderator=None)
                 
                 # Notify mod alert channel
-                alert_ch_id = bot_config.alert_channel_id
+                alert_ch_id = bot_config.get_log_channel_id(guild_id, "security") or bot_config.alert_channel_id
                 if alert_ch_id:
                     ch = self.bot.get_channel(alert_ch_id)
                     if ch:

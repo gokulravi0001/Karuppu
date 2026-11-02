@@ -366,7 +366,7 @@ class VoiceProtection(commands.Cog):
                     pass
 
         # Dispatch alert card
-        alert_ch_id = bot_config.alert_channel_id
+        alert_ch_id = bot_config.get_log_channel_id(guild.id, "raid") or bot_config.get_log_channel_id(guild.id, "voice") or bot_config.alert_channel_id
         if not alert_ch_id:
             return
 
@@ -398,7 +398,7 @@ class VoiceProtection(commands.Cog):
         recommendation: str,
         dry_run: bool
     ):
-        alert_ch_id = bot_config.alert_channel_id
+        alert_ch_id = bot_config.get_log_channel_id(member.guild.id, "voice") or bot_config.alert_channel_id
         if not alert_ch_id:
             return
 

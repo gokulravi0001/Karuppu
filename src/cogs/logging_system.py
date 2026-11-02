@@ -44,7 +44,7 @@ class LoggingSystem(commands.Cog):
         if not message.guild or message.author.bot:
             return
 
-        log_channel = self._get_target_channel(message.guild, "chat")
+        log_channel = self._get_target_channel(message.guild, "message") or self._get_target_channel(message.guild, "chat")
         if not log_channel:
             return
 
@@ -80,7 +80,7 @@ class LoggingSystem(commands.Cog):
         if before.content == after.content:
             return
 
-        log_channel = self._get_target_channel(before.guild, "chat")
+        log_channel = self._get_target_channel(before.guild, "message") or self._get_target_channel(before.guild, "chat")
         if not log_channel:
             return
 
@@ -597,7 +597,7 @@ class LoggingSystem(commands.Cog):
     @commands.Cog.listener()
     async def on_member_join(self, member: discord.Member):
         guild = member.guild
-        log_channel = self._get_target_channel(guild, "member")
+        log_channel = self._get_target_channel(guild, "joins") or self._get_target_channel(guild, "member")
         if not log_channel:
             return
 
@@ -632,7 +632,7 @@ class LoggingSystem(commands.Cog):
     @commands.Cog.listener()
     async def on_member_remove(self, member: discord.Member):
         guild = member.guild
-        log_channel = self._get_target_channel(guild, "member")
+        log_channel = self._get_target_channel(guild, "leaves") or self._get_target_channel(guild, "member")
         if not log_channel:
             return
 
@@ -778,6 +778,362 @@ class LoggingSystem(commands.Cog):
                 await log_channel.send(embed=embed)
             except Exception as e:
                 logger.debug("Failed posting mod audit log: %s", e)
+
+    # ==========================================
+    # 5. DEDICATED GRANULAR EVENT LISTENERS
+    # ==========================================
+    @commands.Cog.listener()
+    async def on_member_ban(self, guild: discord.Guild, user: Union[discord.User, discord.Member]):
+        log_channel = self._get_target_channel(guild, "ban") or self._get_target_channel(guild, "mod")
+        if not log_channel:
+            return
+
+        embed = discord.Embed(
+            title="🔨 Member Banned",
+            color=discord.Color.dark_red(),
+            timestamp=datetime.now(timezone.utc)
+        )
+        embed.set_thumbnail(url=user.display_avatar.url)
+        embed.add_field(name="User", value=f"{user.mention} (`{user.name}` | `{user.id}`)", inline=True)
+        try:
+            await log_channel.send(embed=embed)
+        except Exception:
+            pass
+
+    @commands.Cog.listener()
+    async def on_member_unban(self, guild: discord.Guild, user: discord.User):
+        log_channel = self._get_target_channel(guild, "ban") or self._get_target_channel(guild, "mod")
+        if not log_channel:
+            return
+
+        embed = discord.Embed(
+            title="🔓 Member Unbanned",
+            color=discord.Color.green(),
+            timestamp=datetime.now(timezone.utc)
+        )
+        embed.set_thumbnail(url=user.display_avatar.url)
+        embed.add_field(name="User", value=f"{user.mention} (`{user.name}` | `{user.id}`)", inline=True)
+        try:
+            await log_channel.send(embed=embed)
+        except Exception:
+            pass
+
+    @commands.Cog.listener()
+    async def on_guild_channel_create(self, channel: discord.abc.GuildChannel):
+        guild = channel.guild
+        log_channel = self._get_target_channel(guild, "channel") or self._get_target_channel(guild, "server")
+        if not log_channel:
+            return
+
+        embed = discord.Embed(
+            title="📁 Channel Created",
+            color=discord.Color.green(),
+            timestamp=datetime.now(timezone.utc)
+        )
+        embed.add_field(name="Channel", value=f"{channel.mention} (`#{channel.name}`)", inline=True)
+        embed.add_field(name="Type", value=f"`{str(channel.type).capitalize()}`", inline=True)
+        if getattr(channel, "category", None):
+            embed.add_field(name="Category", value=f"`{channel.category.name}`", inline=True)
+        try:
+            await log_channel.send(embed=embed)
+        except Exception:
+            pass
+
+    @commands.Cog.listener()
+    async def on_guild_channel_delete(self, channel: discord.abc.GuildChannel):
+        guild = channel.guild
+        log_channel = self._get_target_channel(guild, "channel") or self._get_target_channel(guild, "server")
+        if not log_channel:
+            return
+
+        embed = discord.Embed(
+            title="🗑️ Channel Deleted",
+            color=discord.Color.red(),
+            timestamp=datetime.now(timezone.utc)
+        )
+        embed.add_field(name="Channel Name", value=f"`#{channel.name}` (`{channel.id}`)", inline=True)
+        embed.add_field(name="Type", value=f"`{str(channel.type).capitalize()}`", inline=True)
+        try:
+            await log_channel.send(embed=embed)
+        except Exception:
+            pass
+
+    @commands.Cog.listener()
+    async def on_guild_channel_update(self, before: discord.abc.GuildChannel, after: discord.abc.GuildChannel):
+        guild = after.guild
+        log_channel = self._get_target_channel(guild, "channel") or self._get_target_channel(guild, "server")
+        if not log_channel:
+            return
+
+        changes = []
+        if before.name != after.name:
+            changes.append(f"• **Name:** `#{before.name}` ➔ `#{after.name}`")
+        if getattr(before, "topic", None) != getattr(after, "topic", None):
+            changes.append("• **Topic changed**")
+        if getattr(before, "slowmode_delay", None) != getattr(after, "slowmode_delay", None):
+            changes.append(f"• **Slowmode:** `{before.slowmode_delay}s` ➔ `{after.slowmode_delay}s`")
+
+        if not changes:
+            return
+
+        embed = discord.Embed(
+            title="⚙️ Channel Updated",
+            color=discord.Color.blue(),
+            description="\n".join(changes),
+            timestamp=datetime.now(timezone.utc)
+        )
+        embed.add_field(name="Channel", value=after.mention, inline=False)
+        try:
+            await log_channel.send(embed=embed)
+        except Exception:
+            pass
+
+    @commands.Cog.listener()
+    async def on_guild_role_create(self, role: discord.Role):
+        guild = role.guild
+        log_channel = self._get_target_channel(guild, "role") or self._get_target_channel(guild, "server")
+        if not log_channel:
+            return
+
+        embed = discord.Embed(
+            title="🛡️ Role Created",
+            color=discord.Color.green(),
+            timestamp=datetime.now(timezone.utc)
+        )
+        embed.add_field(name="Role", value=f"{role.mention} (`{role.name}` | `{role.id}`)", inline=True)
+        try:
+            await log_channel.send(embed=embed)
+        except Exception:
+            pass
+
+    @commands.Cog.listener()
+    async def on_guild_role_delete(self, role: discord.Role):
+        guild = role.guild
+        log_channel = self._get_target_channel(guild, "role") or self._get_target_channel(guild, "server")
+        if not log_channel:
+            return
+
+        embed = discord.Embed(
+            title="🗑️ Role Deleted",
+            color=discord.Color.red(),
+            timestamp=datetime.now(timezone.utc)
+        )
+        embed.add_field(name="Role Name", value=f"`{role.name}` (`{role.id}`)", inline=True)
+        try:
+            await log_channel.send(embed=embed)
+        except Exception:
+            pass
+
+    @commands.Cog.listener()
+    async def on_guild_role_update(self, before: discord.Role, after: discord.Role):
+        guild = after.guild
+        log_channel = self._get_target_channel(guild, "role") or self._get_target_channel(guild, "server")
+        if not log_channel:
+            return
+
+        changes = []
+        if before.name != after.name:
+            changes.append(f"• **Name:** `{before.name}` ➔ `{after.name}`")
+        if before.color != after.color:
+            changes.append(f"• **Color:** `{before.color}` ➔ `{after.color}`")
+        if before.permissions != after.permissions:
+            changes.append("• **Permissions modified**")
+
+        if not changes:
+            return
+
+        embed = discord.Embed(
+            title="🛡️ Role Updated",
+            color=discord.Color.blue(),
+            description="\n".join(changes),
+            timestamp=datetime.now(timezone.utc)
+        )
+        embed.add_field(name="Role", value=after.mention, inline=False)
+        try:
+            await log_channel.send(embed=embed)
+        except Exception:
+            pass
+
+    @commands.Cog.listener()
+    async def on_guild_update(self, before: discord.Guild, after: discord.Guild):
+        log_channel = self._get_target_channel(after, "server")
+        if not log_channel:
+            return
+
+        changes = []
+        if before.name != after.name:
+            changes.append(f"• **Server Name:** `{before.name}` ➔ `{after.name}`")
+        if before.icon != after.icon:
+            changes.append("• **Server Icon updated**")
+        if before.banner != after.banner:
+            changes.append("• **Server Banner updated**")
+        if before.afk_channel != after.afk_channel:
+            changes.append(f"• **AFK Channel:** {getattr(after.afk_channel, 'mention', 'None')}")
+
+        if not changes:
+            return
+
+        embed = discord.Embed(
+            title="🏢 Server Settings Updated",
+            color=discord.Color.gold(),
+            description="\n".join(changes),
+            timestamp=datetime.now(timezone.utc)
+        )
+        if after.icon:
+            embed.set_thumbnail(url=after.icon.url)
+        try:
+            await log_channel.send(embed=embed)
+        except Exception:
+            pass
+
+    @commands.Cog.listener()
+    async def on_member_update(self, before: discord.Member, after: discord.Member):
+        guild = after.guild
+
+        # 1. Nickname changed -> member log
+        if before.nick != after.nick:
+            mem_ch = self._get_target_channel(guild, "member")
+            if mem_ch:
+                embed = discord.Embed(
+                    title="👤 Member Nickname Changed",
+                    color=discord.Color.blue(),
+                    timestamp=datetime.now(timezone.utc)
+                )
+                embed.set_author(name=str(after), icon_url=after.display_avatar.url)
+                embed.add_field(name="Member", value=after.mention, inline=True)
+                embed.add_field(name="Before", value=f"`{before.nick or before.name}`", inline=True)
+                embed.add_field(name="After", value=f"`{after.nick or after.name}`", inline=True)
+                try:
+                    await mem_ch.send(embed=embed)
+                except Exception:
+                    pass
+
+        # 2. Roles changed -> role log
+        if before.roles != after.roles:
+            role_ch = self._get_target_channel(guild, "role") or self._get_target_channel(guild, "server")
+            if role_ch:
+                added = [r for r in after.roles if r not in before.roles]
+                removed = [r for r in before.roles if r not in after.roles]
+                changes = []
+                if added:
+                    changes.append(f"➕ **Added:** {', '.join([r.mention for r in added])}")
+                if removed:
+                    changes.append(f"➖ **Removed:** {', '.join([r.mention for r in removed])}")
+
+                if changes:
+                    embed = discord.Embed(
+                        title="🛡️ Member Roles Updated",
+                        color=discord.Color.blue(),
+                        description="\n".join(changes),
+                        timestamp=datetime.now(timezone.utc)
+                    )
+                    embed.set_author(name=str(after), icon_url=after.display_avatar.url)
+                    embed.add_field(name="Member", value=after.mention, inline=False)
+                    try:
+                        await role_ch.send(embed=embed)
+                    except Exception:
+                        pass
+
+        # 3. Server Boosted -> boost log
+        if before.premium_since != after.premium_since and after.premium_since:
+            boost_ch = self._get_target_channel(guild, "boost") or self._get_target_channel(guild, "server")
+            if boost_ch:
+                embed = discord.Embed(
+                    title="🚀 Server Boosted!",
+                    color=discord.Color.magenta(),
+                    description=f"{after.mention} just boosted **{guild.name}**!",
+                    timestamp=datetime.now(timezone.utc)
+                )
+                embed.set_thumbnail(url=after.display_avatar.url)
+                embed.add_field(name="Total Server Boosts", value=f"`{guild.premium_subscription_count}` boosts", inline=True)
+                embed.add_field(name="Tier Level", value=f"Tier `{guild.premium_tier}`", inline=True)
+                try:
+                    await boost_ch.send(embed=embed)
+                except Exception:
+                    pass
+
+    @commands.Cog.listener()
+    async def on_invite_create(self, invite: discord.Invite):
+        guild = invite.guild
+        if not guild:
+            return
+        inv_ch = self._get_target_channel(guild, "invite") or self._get_target_channel(guild, "server")
+        if not inv_ch:
+            return
+
+        embed = discord.Embed(
+            title="✉️ Invite Created",
+            color=discord.Color.teal(),
+            timestamp=datetime.now(timezone.utc)
+        )
+        embed.add_field(name="Code", value=f"`{invite.code}` ([Link]({invite.url}))", inline=True)
+        embed.add_field(name="Created By", value=f"{invite.inviter.mention if invite.inviter else 'Unknown'}", inline=True)
+        embed.add_field(name="Channel", value=f"{getattr(invite.channel, 'mention', 'Unknown')}", inline=True)
+        max_uses_str = str(invite.max_uses) if invite.max_uses else "Unlimited"
+        embed.add_field(name="Max Uses", value=f"`{max_uses_str}`", inline=True)
+        try:
+            await inv_ch.send(embed=embed)
+        except Exception:
+            pass
+
+    @commands.Cog.listener()
+    async def on_invite_delete(self, invite: discord.Invite):
+        guild = invite.guild
+        if not guild:
+            return
+        inv_ch = self._get_target_channel(guild, "invite") or self._get_target_channel(guild, "server")
+        if not inv_ch:
+            return
+
+        embed = discord.Embed(
+            title="🗑️ Invite Deleted",
+            color=discord.Color.dark_grey(),
+            timestamp=datetime.now(timezone.utc)
+        )
+        embed.add_field(name="Code", value=f"`{invite.code}`", inline=True)
+        embed.add_field(name="Channel", value=f"{getattr(invite.channel, 'mention', 'Unknown')}", inline=True)
+        try:
+            await inv_ch.send(embed=embed)
+        except Exception:
+            pass
+
+    @commands.Cog.listener()
+    async def on_guild_integrations_update(self, guild: discord.Guild):
+        rel_ch = self._get_target_channel(guild, "relationship") or self._get_target_channel(guild, "server")
+        if not rel_ch:
+            return
+        embed = discord.Embed(
+            title="🔗 Integrations & Bots Updated",
+            color=discord.Color.blue(),
+            description=f"Server integrations, apps, or webhooks updated in **{guild.name}**.",
+            timestamp=datetime.now(timezone.utc)
+        )
+        try:
+            await rel_ch.send(embed=embed)
+        except Exception:
+            pass
+
+    @commands.Cog.listener()
+    async def on_bulk_message_delete(self, messages: list):
+        if not messages:
+            return
+        guild = messages[0].guild
+        if not guild:
+            return
+        msg_ch = self._get_target_channel(guild, "message") or self._get_target_channel(guild, "chat")
+        if not msg_ch:
+            return
+
+        embed = discord.Embed(
+            title=f"🧹 Bulk Messages Purged in #{messages[0].channel.name}",
+            color=discord.Color.red(),
+            description=f"**{len(messages)}** messages were deleted in {messages[0].channel.mention}.",
+            timestamp=datetime.now(timezone.utc)
+        )
+        try:
+            await msg_ch.send(embed=embed)
+        except Exception:
+            pass
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(LoggingSystem(bot))

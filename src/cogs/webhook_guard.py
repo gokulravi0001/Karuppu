@@ -77,7 +77,7 @@ class WebhookGuard(commands.Cog):
                 logger.error("Failed to delete compromised webhook %d: %s", webhook_id, e)
 
         # Dispatch alert
-        alert_ch_id = bot_config.alert_channel_id
+        alert_ch_id = bot_config.get_log_channel_id(channel.guild.id, "security") or bot_config.alert_channel_id
         if alert_ch_id:
             alert_ch = self.bot.get_channel(alert_ch_id)
             if alert_ch:

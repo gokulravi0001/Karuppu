@@ -92,7 +92,7 @@ class NameSanitizer(commands.Cog):
                     logger.error("Failed to rename member %s: %s", member, e)
 
             # Alert channel
-            alert_ch_id = bot_config.alert_channel_id
+            alert_ch_id = bot_config.get_log_channel_id(guild.id, "member") or bot_config.alert_channel_id
             if alert_ch_id:
                 alert_ch = self.bot.get_channel(alert_ch_id)
                 if alert_ch:

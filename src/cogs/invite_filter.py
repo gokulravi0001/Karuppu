@@ -97,7 +97,7 @@ class InviteFilter(commands.Cog):
                 logger.error("Failed to delete external invite: %s", e)
 
         # Dispatch alert card
-        alert_ch_id = bot_config.alert_channel_id
+        alert_ch_id = bot_config.get_log_channel_id(guild.id, "invite") or bot_config.get_log_channel_id(guild.id, "automod") or bot_config.alert_channel_id
         if not alert_ch_id:
             return
 

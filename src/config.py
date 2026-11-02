@@ -46,6 +46,7 @@ class BotConfig:
         self.dynamic_bypass_channels: Set[int] = set()
         self.guild_settings_cache: Dict[int, Dict[str, Any]] = {}
         self.vc_punishments_cache: Dict[Tuple[int, int], Dict[str, Any]] = {}
+        self.guild_log_channels_cache: Dict[Tuple[int, str], int] = {}
         self.load()
 
     def load(self) -> None:
@@ -167,12 +168,64 @@ class BotConfig:
         return self.alert_channel_id
 
     def get_log_channel_id(self, guild_id: Optional[int], category: str) -> Optional[int]:
-        """Returns dedicated channel ID for category (chat, voice, vc_state, member, mod, server), falling back to alert channel."""
-        col = f"{category}_log_channel_id"
-        if guild_id and guild_id in self.guild_settings_cache:
-            ch_id = self.guild_settings_cache[guild_id].get(col)
-            if ch_id:
-                return int(ch_id)
+        """Returns dedicated channel ID for category with smart 24-channel fallback resolution."""
+        if not guild_id:
+            return None
+
+        # 1. Exact match in granular 24-channel cache
+        cat_key = category.strip().lower()
+        ch_id = self.guild_log_channels_cache.get((guild_id, cat_key))
+        if ch_id:
+            return int(ch_id)
+
+        # 2. Exact match in legacy guild_settings table
+        col = f"{cat_key}_log_channel_id"
+        if guild_id in self.guild_settings_cache:
+            legacy_id = self.guild_settings_cache[guild_id].get(col)
+            if legacy_id:
+                return int(legacy_id)
+
+        # 3. Smart fallback chains for granular channels to standard categories
+        fallbacks = {
+            "antinuke": ["security", "mod"],
+            "message": ["chat"],
+            "chat": ["message"],
+            "mod": [],
+            "verify": ["member", "security"],
+            "whitelist": ["admin", "security"],
+            "security": [],
+            "server": [],
+            "role": ["server"],
+            "file": ["message", "chat", "security"],
+            "voice": [],
+            "vc_state": ["voice"],
+            "member": [],
+            "channel": ["server"],
+            "invite": ["server", "security"],
+            "ticket": ["mod", "admin"],
+            "admin": ["security", "mod"],
+            "boost": ["member", "server"],
+            "raid": ["security", "mod"],
+            "misuse": ["security", "mod"],
+            "ban": ["mod"],
+            "joins": ["member"],
+            "leaves": ["member"],
+            "presence": ["member", "vc_state"],
+            "automod": ["security", "message", "chat"],
+            "relationship": ["server", "admin"]
+        }
+
+        for fallback_cat in fallbacks.get(cat_key, []):
+            fb_id = self.guild_log_channels_cache.get((guild_id, fallback_cat))
+            if fb_id:
+                return int(fb_id)
+            if guild_id in self.guild_settings_cache:
+                fb_col = f"{fallback_cat}_log_channel_id"
+                if fb_col in self.guild_settings_cache[guild_id]:
+                    val = self.guild_settings_cache[guild_id][fb_col]
+                    if val:
+                        return int(val)
+
         return None
 
     def is_vc_blocked(self, guild_id: int, user_id: int) -> Optional[Dict[str, Any]]:

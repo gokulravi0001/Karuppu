@@ -137,7 +137,7 @@ class ProgressiveTrustGate(commands.Cog):
         rule_name: str,
         required_role: str
     ):
-        alert_ch_id = bot_config.alert_channel_id
+        alert_ch_id = bot_config.get_log_channel_id(message.guild.id, "verify") or bot_config.get_log_channel_id(message.guild.id, "whitelist") or bot_config.alert_channel_id
         if not alert_ch_id:
             return
 

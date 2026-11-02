@@ -92,6 +92,15 @@ class SecurityBot(commands.Bot):
         except Exception as e:
             logger.error("Failed loading guild settings: %s", e)
 
+        # 3b. Load Dedicated Granular Log Channels (24-Channel Suite)
+        try:
+            log_entries = await db.get_all_guild_log_channels()
+            for entry in log_entries:
+                bot_config.guild_log_channels_cache[(entry["guild_id"], entry["log_type"])] = entry["channel_id"]
+            logger.info("Loaded %d granular log channel mappings into cache", len(bot_config.guild_log_channels_cache))
+        except Exception as e:
+            logger.error("Failed loading granular log channel mappings: %s", e)
+
         # 2b. Load Active Voice Channel Punishments (VC Bans and Timeouts)
         try:
             active_punishments = await db.get_active_vc_punishments()

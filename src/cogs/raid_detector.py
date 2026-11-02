@@ -165,7 +165,7 @@ class RaidDetector(commands.Cog):
             action_taken="[DRY RUN] Raid Alert Dispatched with Action Buttons" if dry_run else "Raid Containment Triggered"
         )
 
-        alert_ch_id = bot_config.alert_channel_id
+        alert_ch_id = bot_config.get_log_channel_id(guild.id, "raid") or bot_config.alert_channel_id
         if not alert_ch_id:
             logger.warning("No ALERT_CHANNEL_ID set. Raid detected: %s", evidence_str)
             return

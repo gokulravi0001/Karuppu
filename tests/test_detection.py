@@ -474,5 +474,97 @@ class TestVCPunishments(unittest.TestCase):
         conn.close()
 
 
+class TestFullSuiteLoggingResolution(unittest.TestCase):
+    def test_24_channel_exact_and_fallback_resolution(self):
+        from src.config import bot_config
+        guild_id = 999988887777
+
+        # Ensure cache starts clean for test guild
+        for k in list(bot_config.guild_log_channels_cache.keys()):
+            if k[0] == guild_id:
+                del bot_config.guild_log_channels_cache[k]
+        bot_config.guild_settings_cache.pop(guild_id, None)
+
+        # 1. Exact resolution test when full suite is configured
+        all_24_channels = [
+            "antinuke", "message", "mod", "verify", "whitelist", "security",
+            "server", "role", "file", "voice", "member", "channel",
+            "invite", "ticket", "admin", "boost", "raid", "misuse",
+            "ban", "joins", "leaves", "presence", "automod", "relationship"
+        ]
+        dummy_base_id = 100000000
+        for i, ch_key in enumerate(all_24_channels):
+            bot_config.guild_log_channels_cache[(guild_id, ch_key)] = dummy_base_id + i
+
+        for i, ch_key in enumerate(all_24_channels):
+            res_id = bot_config.get_log_channel_id(guild_id, ch_key)
+            self.assertEqual(res_id, dummy_base_id + i, f"Failed exact resolution for {ch_key}")
+
+        # 2. Test fallback chains when granular channels are missing
+        # Clear all and only set standard parent channels
+        for k in list(bot_config.guild_log_channels_cache.keys()):
+            if k[0] == guild_id:
+                del bot_config.guild_log_channels_cache[k]
+
+        bot_config.guild_log_channels_cache[(guild_id, "security")] = 7701
+        bot_config.guild_log_channels_cache[(guild_id, "mod")] = 7702
+        bot_config.guild_log_channels_cache[(guild_id, "member")] = 7703
+        bot_config.guild_log_channels_cache[(guild_id, "server")] = 7704
+        bot_config.guild_log_channels_cache[(guild_id, "chat")] = 7705
+
+        # Check fallbacks
+        self.assertEqual(bot_config.get_log_channel_id(guild_id, "antinuke"), 7701) # antinuke -> security
+        self.assertEqual(bot_config.get_log_channel_id(guild_id, "raid"), 7701)     # raid -> security
+        self.assertEqual(bot_config.get_log_channel_id(guild_id, "misuse"), 7701)   # misuse -> security
+        self.assertEqual(bot_config.get_log_channel_id(guild_id, "ban"), 7702)      # ban -> mod
+        self.assertEqual(bot_config.get_log_channel_id(guild_id, "joins"), 7703)    # joins -> member
+        self.assertEqual(bot_config.get_log_channel_id(guild_id, "leaves"), 7703)   # leaves -> member
+        self.assertEqual(bot_config.get_log_channel_id(guild_id, "role"), 7704)     # role -> server
+        self.assertEqual(bot_config.get_log_channel_id(guild_id, "channel"), 7704)  # channel -> server
+        self.assertEqual(bot_config.get_log_channel_id(guild_id, "message"), 7705)  # message -> chat
+
+        # Cleanup
+        for k in list(bot_config.guild_log_channels_cache.keys()):
+            if k[0] == guild_id:
+                del bot_config.guild_log_channels_cache[k]
+
+    def test_guild_log_channels_database_operations(self):
+        import sqlite3
+        conn = sqlite3.connect(":memory:")
+        cursor = conn.cursor()
+        cursor.execute("""
+            CREATE TABLE guild_log_channels (
+                guild_id INTEGER NOT NULL,
+                log_type TEXT NOT NULL,
+                channel_id INTEGER NOT NULL,
+                PRIMARY KEY (guild_id, log_type)
+            );
+        """)
+
+        # Insert channel
+        cursor.execute("""
+            INSERT INTO guild_log_channels (guild_id, log_type, channel_id)
+            VALUES (?, ?, ?)
+            ON CONFLICT(guild_id, log_type) DO UPDATE SET channel_id = excluded.channel_id
+        """, (8888, "antinuke", 112233))
+
+        cursor.execute("SELECT channel_id FROM guild_log_channels WHERE guild_id = ? AND log_type = ?", (8888, "antinuke"))
+        self.assertEqual(cursor.fetchone()[0], 112233)
+
+        # Bulk insert
+        items = [(8888, "mod", 112234), (8888, "joins", 112235), (8888, "voice", 112236)]
+        cursor.executemany("""
+            INSERT INTO guild_log_channels (guild_id, log_type, channel_id)
+            VALUES (?, ?, ?)
+            ON CONFLICT(guild_id, log_type) DO UPDATE SET channel_id = excluded.channel_id
+        """, items)
+
+        cursor.execute("SELECT log_type, channel_id FROM guild_log_channels WHERE guild_id = ?", (8888,))
+        rows = dict(cursor.fetchall())
+        self.assertEqual(len(rows), 4)
+        self.assertEqual(rows["joins"], 112235)
+        conn.close()
+
+
 if __name__ == "__main__":
     unittest.main()

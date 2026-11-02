@@ -116,7 +116,7 @@ class CompromisedAccountDetector(commands.Cog):
                 logger.warning("Failed to timeout potentially compromised account %s: %s", member, e)
 
         # Dispatch alert
-        alert_ch_id = bot_config.alert_channel_id
+        alert_ch_id = bot_config.get_log_channel_id(guild.id, "security") or bot_config.alert_channel_id
         if not alert_ch_id:
             return
 

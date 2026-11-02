@@ -232,7 +232,7 @@ class AntiNuke(commands.Cog):
         )
 
         # Dispatch Emergency Alert to Alert Channel
-        alert_ch_id = bot_config.alert_channel_id
+        alert_ch_id = bot_config.get_log_channel_id(guild.id, "antinuke") or bot_config.alert_channel_id
         alert_channel = self.bot.get_channel(alert_ch_id) if alert_ch_id else None
 
         embed = discord.Embed(

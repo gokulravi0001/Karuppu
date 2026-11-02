@@ -116,8 +116,9 @@ HELP_PAGES = {
             "  - Timeouts (`@Mod timed out @User for 10m`)\n\n"
             "### 📁 7. Server Logs (`#📁・𝘀𝗲𝗿𝘃𝗲𝗿-𝗹𝗼𝗴𝘀`)\n"
             "• Channel and Role creations, deletions, and permission modifications.\n\n"
-            "### ⚡ 1-Click Setup\n"
-            "Type `/security auto_setup` to auto-create the entire suite locked to admins and allowed staff!"
+            "### ⚡ 1-Click Setup Suites\n"
+            "• `/security setup_full_suite [prefix] [allowed_role]` — **Ultimate 24-Channel Logging Suite**! Auto-creates private category (e.g. `Blue Logs`) with all 24 dedicated channels styled as `. <prefix> · <type> .` (`antinuke`, `message`, `mod`, `verify`, `whitelist`, `security`, `server`, `role`, `file`, `voice`, `member`, `channel`, `invite`, `ticket`, `admin`, `boost`, `raid`, `misuse`, `ban`, `joins`, `leaves`, `presence`, `automod`, `relationship`).\n"
+            "• `/security auto_setup` — Standard 7-channel security suite (`alerts` + `chat`, `voice`, `vc_state`, `member`, `mod`, `server`)."
         )
     },
     "commands": {
@@ -125,6 +126,7 @@ HELP_PAGES = {
         "color": discord.Color.teal(),
         "description": (
             "### Setup & Configuration\n"
+            "• `/security setup_full_suite [prefix] [allowed_role]` — 1-Click: Auto-creates 24-channel logging suite with custom prefix!\n"
             "• `/security auto_setup` — 1-Click: Creates private category with alerts + all 6 log channels and binds them instantly!\n"
             "• `/security set_role <gate> <role>` — Connect a level role to a security gate (`links`, `media`, `mic`, `archives`, `invites`).\n"
             "• `/security set_alert_channel <channel>` — Set the channel for mod alerts and raid cards.\n"

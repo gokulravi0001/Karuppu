@@ -9,6 +9,7 @@ from typing import Optional, Union
 import discord
 from discord.ext import commands
 from src.config import bot_config
+from src.database import db
 
 logger = logging.getLogger("security_bot.logging_system")
 
@@ -153,13 +154,61 @@ class LoggingSystem(commands.Cog):
         # Enforce active VC bans and timeouts (instantly disconnect punished users attempting to join VC)
         if after.channel is not None:
             block = bot_config.is_vc_blocked(guild.id, member.id)
+            if not block:
+                try:
+                    block = await db.get_user_vc_punishment(guild.id, member.id)
+                    if block:
+                        bot_config.vc_punishments_cache[(guild.id, member.id)] = block
+                except Exception:
+                    pass
+
             if block:
                 p_type = block.get("punishment_type", "restriction")
                 reason = block.get("reason", "Voice channel moderation enforcement")
+
+                # 1. Deny channel connect permission overwrite so Discord client blocks them
+                try:
+                    if guild.me.guild_permissions.manage_channels:
+                        await after.channel.set_permissions(member, connect=False, speak=False, reason=f"VC {p_type.capitalize()} Enforcement")
+                except Exception as e:
+                    logger.debug("Failed setting connect=False overwrite for %s: %s", member.id, e)
+
+                # 2. Server-mute and deafen immediately
+                try:
+                    if guild.me.guild_permissions.mute_members:
+                        await member.edit(mute=True, deafen=True, reason=f"VC {p_type.capitalize()}: {reason}")
+                except Exception:
+                    pass
+
+                # 3. Disconnect from voice
                 try:
                     await member.move_to(None, reason=f"Active VC {p_type.capitalize()}: {reason}")
+                    logger.info("Instantly disconnected VC-blocked member %s (%s) from #%s in %s", member, member.id, after.channel.name, guild.name)
+                except discord.Forbidden:
+                    logger.warning("Discord Forbidden: Cannot disconnect %s from VC because user has higher role/admin than bot in %s", member.id, guild.name)
+                    # Send alert to mod log channel
+                    alert_ch_id = bot_config.get_log_channel_id(guild.id, "mod") or bot_config.get_log_channel_id(guild.id, "voice") or bot_config.get_alert_channel_id(guild.id)
+                    if alert_ch_id:
+                        ch = guild.get_channel(alert_ch_id)
+                        if isinstance(ch, discord.TextChannel):
+                            embed = discord.Embed(
+                                title="⚠️ VC Ban Enforcement Blocked by Discord Role Hierarchy",
+                                color=discord.Color.red(),
+                                description=(
+                                    f"**Member:** {member.mention} (`{member.id}`)\n"
+                                    f"**Active Punishment:** `{p_type.upper()}`\n"
+                                    f"**Channel Joined:** {after.channel.mention}\n\n"
+                                    f"❌ **Discord 403 Forbidden**: The bot cannot disconnect {member.mention} because their highest role (`{member.top_role.name}`) is equal to or higher than the bot's highest role (`{guild.me.top_role.name}`), or they have Administrator permissions.\n\n"
+                                    f"👉 **To fix this**: Go to **Server Settings -> Roles**, and drag **Karuppu**'s role **ABOVE** other roles."
+                                ),
+                                timestamp=datetime.now(timezone.utc)
+                            )
+                            try:
+                                await ch.send(embed=embed)
+                            except Exception:
+                                pass
                 except Exception as e:
-                    logger.debug("Failed disconnecting VC-blocked member %s: %s", member.id, e)
+                    logger.error("Failed disconnecting VC-blocked member %s: %s", member.id, e)
                 return
 
         embed = None

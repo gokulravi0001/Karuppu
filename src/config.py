@@ -176,8 +176,8 @@ class BotConfig:
         return None
 
     def is_vc_blocked(self, guild_id: int, user_id: int) -> Optional[Dict[str, Any]]:
-        """Checks if a user is currently VC banned or timed out in a guild."""
-        entry = self.vc_punishments_cache.get((guild_id, user_id))
+        """Checks if a user is currently VC banned or timed out in a guild or globally (guild_id=0)."""
+        entry = self.vc_punishments_cache.get((guild_id, user_id)) or self.vc_punishments_cache.get((0, user_id))
         if not entry:
             return None
         expires_at = entry.get("expires_at")
@@ -185,7 +185,8 @@ class BotConfig:
             try:
                 exp_dt = datetime.fromisoformat(expires_at)
                 if datetime.now(timezone.utc) >= exp_dt:
-                    del self.vc_punishments_cache[(guild_id, user_id)]
+                    self.vc_punishments_cache.pop((guild_id, user_id), None)
+                    self.vc_punishments_cache.pop((0, user_id), None)
                     return None
             except Exception:
                 pass

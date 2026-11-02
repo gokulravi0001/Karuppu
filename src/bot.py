@@ -170,6 +170,12 @@ class SecurityBot(commands.Bot):
                         await member.edit(mute=False, reason="VC Timeout auto-expired")
                     except Exception:
                         pass
+                if guild.me.guild_permissions.manage_channels and member:
+                    for vc in guild.voice_channels + guild.stage_channels:
+                        try:
+                            await vc.set_permissions(member, overwrite=None, reason="VC Timeout auto-expired")
+                        except Exception:
+                            pass
                 log_ch_id = bot_config.get_log_channel_id(guild_id, "mod") or bot_config.get_log_channel_id(guild_id, "voice")
                 if log_ch_id:
                     ch = guild.get_channel(log_ch_id)

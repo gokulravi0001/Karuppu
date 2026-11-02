@@ -440,7 +440,7 @@ class AuditDatabase:
             db.row_factory = aiosqlite.Row
             async with db.execute("""
                 SELECT * FROM vc_punishments
-                WHERE guild_id = ? AND user_id = ?
+                WHERE (guild_id = ? OR guild_id = 0) AND user_id = ?
                 ORDER BY CASE punishment_type WHEN 'ban' THEN 1 ELSE 2 END ASC
                 LIMIT 1
             """, (guild_id, user_id)) as cursor:

@@ -522,6 +522,14 @@ class SecurityAdmin(commands.GroupCog, name="security"):
                 except Exception:
                     pass
 
+            # Apply channel connect=False overwrites across voice channels
+            if guild.me.guild_permissions.manage_channels:
+                for vc in guild.voice_channels + guild.stage_channels:
+                    try:
+                        await vc.set_permissions(member, connect=False, speak=False, reason=f"VC Timeout: {reason}")
+                    except Exception:
+                        pass
+
             await db.add_vc_punishment(
                 guild_id=guild.id,
                 user_id=member.id,
@@ -622,6 +630,14 @@ class SecurityAdmin(commands.GroupCog, name="security"):
                 except Exception:
                     pass
 
+            # Remove channel connect=False overwrites
+            if guild.me.guild_permissions.manage_channels:
+                for vc in guild.voice_channels + guild.stage_channels:
+                    try:
+                        await vc.set_permissions(member, overwrite=None, reason=f"VC Untimeout: {reason}")
+                    except Exception:
+                        pass
+
             if not removed:
                 await interaction.followup.send(f"ℹ️ {member.mention} does not have an active VC timeout.", ephemeral=True)
                 return
@@ -645,19 +661,25 @@ class SecurityAdmin(commands.GroupCog, name="security"):
 
     @app_commands.command(
         name="vc_ban",
-        description="[Mods Only] Ban a member from joining any voice channel in the server."
+        description="[Mods Only] Ban a member from joining any voice channel."
     )
     @app_commands.describe(
         member="The member to ban from voice channels",
         reason="Reason for voice channel ban (optional)",
-        duration_hours="Optional duration in hours (leave empty or 0 for permanent)"
+        duration_hours="Optional duration in hours (leave empty or 0 for permanent)",
+        scope="Scope: 'server' (this server only) or 'global' (all servers guarded by Karuppu)"
     )
+    @app_commands.choices(scope=[
+        app_commands.Choice(name="🏢 This Server Only (Default)", value="server"),
+        app_commands.Choice(name="🌐 Global (All Servers with Karuppu)", value="global")
+    ])
     async def cmd_vc_ban(
         self,
         interaction: discord.Interaction,
         member: discord.Member,
         reason: Optional[str] = "Voice Channel Moderation Ban",
-        duration_hours: Optional[int] = None
+        duration_hours: Optional[int] = None,
+        scope: Optional[app_commands.Choice[str]] = None
     ):
         if not self._check_mod(interaction):
             await interaction.response.send_message("❌ Moderator permissions required.", ephemeral=True)
@@ -677,6 +699,9 @@ class SecurityAdmin(commands.GroupCog, name="security"):
         await interaction.response.defer()
 
         try:
+            target_guild_id = 0 if (scope and scope.value == "global") else guild.id
+            is_global = target_guild_id == 0
+
             now_utc = datetime.now(timezone.utc)
             expires_iso = None
             duration_str = "Permanent"
@@ -699,29 +724,38 @@ class SecurityAdmin(commands.GroupCog, name="security"):
                 except Exception:
                     pass
 
+            # Apply channel connect=False overwrites across voice channels
+            if guild.me.guild_permissions.manage_channels:
+                for vc in guild.voice_channels + guild.stage_channels:
+                    try:
+                        await vc.set_permissions(member, connect=False, speak=False, reason=f"VC Ban: {reason}")
+                    except Exception:
+                        pass
+
             await db.add_vc_punishment(
-                guild_id=guild.id,
+                guild_id=target_guild_id,
                 user_id=member.id,
                 punishment_type="ban",
                 moderator_id=interaction.user.id,
                 reason=reason,
                 expires_at=expires_iso
             )
-            bot_config.vc_punishments_cache[(guild.id, member.id)] = {
+            bot_config.vc_punishments_cache[(target_guild_id, member.id)] = {
                 "punishment_type": "ban",
                 "reason": reason,
                 "expires_at": expires_iso,
                 "moderator_id": interaction.user.id
             }
 
+            scope_label = "🌐 Global (All Servers)" if is_global else "🏢 Server-Wide"
             await db.log_incident(
                 guild_id=guild.id,
                 user_id=member.id,
                 username=str(member),
                 rule_triggered="Voice Channel Ban",
                 confidence="HIGH (Staff Action)",
-                raw_evidence=f"VC Banned ({duration_str}) by {interaction.user} | Reason: {reason}",
-                action_taken=f"VC Ban ({duration_str})",
+                raw_evidence=f"VC Banned ({duration_str} | {scope_label}) by {interaction.user} | Reason: {reason}",
+                action_taken=f"VC Ban ({duration_str} | {scope_label})",
                 moderator_id=interaction.user.id
             )
 
@@ -731,8 +765,9 @@ class SecurityAdmin(commands.GroupCog, name="security"):
                     color=discord.Color.dark_red(),
                     description=(
                         f"**Duration:** {duration_str}\n"
+                        f"**Scope:** {scope_label}\n"
                         f"**Reason:** {reason}\n\n"
-                        f"You are strictly prohibited from joining voice channels in **{guild.name}**."
+                        f"You are strictly prohibited from joining voice channels."
                     )
                 )
                 await member.send(embed=dm_embed)
@@ -740,14 +775,15 @@ class SecurityAdmin(commands.GroupCog, name="security"):
                 pass
 
             embed = discord.Embed(
-                title="🔨 Member Banned from Voice Channels",
+                title=f"🔨 Member Banned from Voice Channels ({scope_label})",
                 color=discord.Color.dark_red(),
                 description=(
                     f"**Member:** {member.mention} (`{member.id}`)\n"
                     f"**Duration:** {duration_str}\n"
+                    f"**Scope:** `{scope_label}`\n"
                     f"**Moderator:** {interaction.user.mention}\n"
                     f"**Reason:** {reason}\n\n"
-                    f"🚫 {member.mention} will be instantly disconnected if they attempt to join any voice channel."
+                    f"🚫 {member.mention} is blocked from connecting to voice channels."
                 ),
                 timestamp=now_utc
             )
@@ -789,7 +825,9 @@ class SecurityAdmin(commands.GroupCog, name="security"):
         try:
             guild = interaction.guild
             removed = await db.remove_vc_punishment(guild.id, user.id, "ban")
+            removed_global = await db.remove_vc_punishment(0, user.id, "ban")
             bot_config.vc_punishments_cache.pop((guild.id, user.id), None)
+            bot_config.vc_punishments_cache.pop((0, user.id), None)
 
             member = guild.get_member(user.id)
             if member and guild.me.guild_permissions.mute_members:
@@ -798,7 +836,15 @@ class SecurityAdmin(commands.GroupCog, name="security"):
                 except Exception:
                     pass
 
-            if not removed:
+            # Remove channel connect=False overwrites
+            if guild.me.guild_permissions.manage_channels and member:
+                for vc in guild.voice_channels + guild.stage_channels:
+                    try:
+                        await vc.set_permissions(member, overwrite=None, reason=f"VC Unban: {reason}")
+                    except Exception:
+                        pass
+
+            if not (removed or removed_global):
                 await interaction.followup.send(f"ℹ️ {user.mention} is not currently VC banned.", ephemeral=True)
                 return
 

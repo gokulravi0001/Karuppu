@@ -411,6 +411,19 @@ class TestVCPunishments(unittest.TestCase):
         # Non-punished user
         self.assertIsNone(bot_config.is_vc_blocked(guild_id, 44444))
 
+        # 4. Global ban (guild_id=0) blocks across ANY server
+        user_global = 55555
+        bot_config.vc_punishments_cache[(0, user_global)] = {
+            "punishment_type": "vc_ban",
+            "moderator_id": 999,
+            "reason": "Global raid offender",
+            "expires_at": None
+        }
+        # In guild_id 98765
+        self.assertIsNotNone(bot_config.is_vc_blocked(guild_id, user_global))
+        # In completely different friend's server (guild_id 77777)
+        self.assertIsNotNone(bot_config.is_vc_blocked(77777, user_global))
+
     def test_vc_punishment_schema_and_queries(self):
         import sqlite3
         conn = sqlite3.connect(":memory:")

@@ -1,6 +1,7 @@
 """Admin & Owner Management Cog.
 Handles owner-only bypass configuration, lockdown triggers, dry-run toggles, and security health audits.
 """
+import asyncio
 import logging
 from datetime import datetime, timezone, timedelta
 from typing import Optional, List, Tuple, Any, Dict
@@ -1317,21 +1318,13 @@ class SecurityAdmin(commands.GroupCog, name="security"):
         else:
             await status_msg.edit(content=f"❌ Failed creating logging suite: `{err}`")
 
-    @app_commands.command(
-        name="setup_full_suite",
-        description="[Admins Only] Automatically creates all dedicated action log channels inside a private category."
-    )
-    @app_commands.describe(
-        prefix="Prefix for channel names (defaults to '𝚲')",
-        allowed_role="Optional: Extra staff/moderator role allowed to see these private log channels"
-    )
-    async def cmd_setup_full_suite(
+    async def _handle_setup_full_suite(
         self,
         interaction: discord.Interaction,
         prefix: Optional[str] = "𝚲",
         allowed_role: Optional[discord.Role] = None
     ):
-        """Creates private category and all dedicated log channels matching user's requested suite."""
+        """Worker that defers interaction, performs permission checks, and triggers category/channel generation."""
         # Defer immediately so Discord never times out
         await interaction.response.defer(ephemeral=True)
 
@@ -1354,6 +1347,23 @@ class SecurityAdmin(commands.GroupCog, name="security"):
             await interaction.followup.send(embed=embed, ephemeral=True)
         else:
             await interaction.followup.send(f"❌ Error setting up logging suite: `{err}`", ephemeral=True)
+
+    @app_commands.command(
+        name="setup_full_suite",
+        description="[Admins Only] Automatically creates all dedicated action log channels inside a private category."
+    )
+    @app_commands.describe(
+        prefix="Prefix for channel names (defaults to '𝚲')",
+        allowed_role="Optional: Extra staff/moderator role allowed to see these private log channels"
+    )
+    async def cmd_setup_full_suite(
+        self,
+        interaction: discord.Interaction,
+        prefix: Optional[str] = "𝚲",
+        allowed_role: Optional[discord.Role] = None
+    ):
+        """Creates private category and all dedicated log channels matching user's requested suite."""
+        await self._handle_setup_full_suite(interaction, prefix=prefix, allowed_role=allowed_role)
 
     @app_commands.command(
         name="auto_setup",
@@ -1795,13 +1805,19 @@ class ShortCommands(commands.Cog):
         self.bot = bot
         self.admin = admin
 
+    async def _call(self, cmd_target, *args, **kwargs):
+        """Safely delegates execution to the underlying coroutine of app_commands.Command or regular functions."""
+        if hasattr(cmd_target, "callback"):
+            return await cmd_target.callback(self.admin, *args, **kwargs)
+        return await cmd_target(*args, **kwargs)
+
     @app_commands.command(name="logs", description="[Admins Only] 1-Click setup of complete 32-channel logging suite with 𝚲.")
     @app_commands.describe(
         prefix="Tag prefix for channel names (default: '𝚲')",
         allowed_role="Optional: Extra staff/moderator role allowed to see these private log channels"
     )
     async def cmd_short_logs(self, interaction: discord.Interaction, prefix: Optional[str] = "𝚲", allowed_role: Optional[discord.Role] = None):
-        await self.admin.cmd_setup_full_suite(interaction, prefix=prefix, allowed_role=allowed_role)
+        await self.admin._handle_setup_full_suite(interaction, prefix=prefix, allowed_role=allowed_role)
 
     @app_commands.command(name="setup", description="[Admins Only] 1-Click setup of complete 32-channel logging suite with 𝚲.")
     @app_commands.describe(
@@ -1809,7 +1825,7 @@ class ShortCommands(commands.Cog):
         allowed_role="Optional: Extra staff/moderator role allowed to see these private log channels"
     )
     async def cmd_short_setup(self, interaction: discord.Interaction, prefix: Optional[str] = "𝚲", allowed_role: Optional[discord.Role] = None):
-        await self.admin.cmd_setup_full_suite(interaction, prefix=prefix, allowed_role=allowed_role)
+        await self.admin._handle_setup_full_suite(interaction, prefix=prefix, allowed_role=allowed_role)
 
     @app_commands.command(name="vcban", description="Ban a member from connecting to voice channels.")
     @app_commands.describe(
@@ -1818,7 +1834,7 @@ class ShortCommands(commands.Cog):
         duration_hours="Temporary ban duration in hours (leave empty for permanent)"
     )
     async def cmd_short_vcban(self, interaction: discord.Interaction, member: discord.Member, reason: Optional[str] = None, duration_hours: Optional[int] = None):
-        await self.admin.cmd_vc_ban(interaction, member=member, reason=reason, duration_hours=duration_hours)
+        await self._call(self.admin.cmd_vc_ban, interaction, member=member, reason=reason, duration_hours=duration_hours)
 
     @app_commands.command(name="vcunban", description="Unban a member from voice channels.")
     @app_commands.describe(
@@ -1826,7 +1842,7 @@ class ShortCommands(commands.Cog):
         reason="Reason for lifting the voice ban"
     )
     async def cmd_short_vcunban(self, interaction: discord.Interaction, user: discord.User, reason: Optional[str] = None):
-        await self.admin.cmd_vc_unban(interaction, user=user, reason=reason)
+        await self._call(self.admin.cmd_vc_unban, interaction, user=user, reason=reason)
 
     @app_commands.command(name="vckick", description="Kick/disconnect a member from voice immediately.")
     @app_commands.describe(
@@ -1834,7 +1850,7 @@ class ShortCommands(commands.Cog):
         reason="Reason for the voice kick"
     )
     async def cmd_short_vckick(self, interaction: discord.Interaction, member: discord.Member, reason: Optional[str] = None):
-        await self.admin.cmd_vc_kick(interaction, member=member, reason=reason)
+        await self._call(self.admin.cmd_vc_kick, interaction, member=member, reason=reason)
 
     @app_commands.command(name="vctimeout", description="Timeout and block a member from voice channels for X minutes.")
     @app_commands.describe(
@@ -1843,7 +1859,7 @@ class ShortCommands(commands.Cog):
         reason="Reason for the voice timeout"
     )
     async def cmd_short_vctimeout(self, interaction: discord.Interaction, member: discord.Member, duration_minutes: int, reason: Optional[str] = None):
-        await self.admin.cmd_vc_timeout(interaction, member=member, duration_minutes=duration_minutes, reason=reason)
+        await self._call(self.admin.cmd_vc_timeout, interaction, member=member, duration_minutes=duration_minutes, reason=reason)
 
     @app_commands.command(name="vcuntimeout", description="Lift voice channel timeout early.")
     @app_commands.describe(
@@ -1851,11 +1867,11 @@ class ShortCommands(commands.Cog):
         reason="Reason for lifting timeout"
     )
     async def cmd_short_vcuntimeout(self, interaction: discord.Interaction, member: discord.Member, reason: Optional[str] = None):
-        await self.admin.cmd_vc_untimeout(interaction, member=member, reason=reason)
+        await self._call(self.admin.cmd_vc_untimeout, interaction, member=member, reason=reason)
 
     @app_commands.command(name="vcbans", description="View active voice bans and timeouts.")
     async def cmd_short_vcbans(self, interaction: discord.Interaction):
-        await self.admin.cmd_vc_banlist(interaction)
+        await self._call(self.admin.cmd_vc_banlist, interaction)
 
     @app_commands.command(name="lock", description="Activate temporary emergency lockdown on public channels.")
     @app_commands.describe(
@@ -1863,11 +1879,11 @@ class ShortCommands(commands.Cog):
         reason="Reason for the lockdown"
     )
     async def cmd_short_lock(self, interaction: discord.Interaction, duration_minutes: Optional[int] = 30, reason: Optional[str] = "Emergency containment"):
-        await self.admin.cmd_lockdown(interaction, duration_minutes=duration_minutes, reason=reason)
+        await self._call(self.admin.cmd_lockdown, interaction, duration_minutes=duration_minutes, reason=reason)
 
     @app_commands.command(name="unlock", description="Lift an active server lockdown immediately.")
     async def cmd_short_unlock(self, interaction: discord.Interaction):
-        await self.admin.cmd_unlock(interaction)
+        await self._call(self.admin.cmd_unlock, interaction)
 
     @app_commands.command(name="purge", description="One-click purge of raid accounts.")
     @app_commands.describe(
@@ -1875,7 +1891,7 @@ class ShortCommands(commands.Cog):
         action="Purge action: ban or kick"
     )
     async def cmd_short_purge(self, interaction: discord.Interaction, within_minutes: Optional[int] = 15, action: Optional[str] = "ban"):
-        await self.admin.cmd_purge_raid(interaction, within_minutes=within_minutes, action=action)
+        await self._call(self.admin.cmd_purge_raid, interaction, within_minutes=within_minutes, action=action)
 
     @app_commands.command(name="setlog", description="[Admins Only] Assign dedicated channel for a log category.")
     @app_commands.describe(
@@ -1884,20 +1900,20 @@ class ShortCommands(commands.Cog):
     )
     @app_commands.autocomplete(category=log_channel_autocomplete_fn)
     async def cmd_short_setlog(self, interaction: discord.Interaction, category: str, channel: discord.TextChannel):
-        await self.admin.cmd_set_log_channel(interaction, category=category, channel=channel)
+        await self._call(self.admin.cmd_set_log_channel, interaction, category=category, channel=channel)
 
     @app_commands.command(name="setalert", description="[Admins Only] Set channel for security alerts and raid cards.")
     @app_commands.describe(channel="The channel for mod logs and raid alerts")
     async def cmd_short_setalert(self, interaction: discord.Interaction, channel: discord.TextChannel):
-        await self.admin.cmd_set_alert_channel(interaction, channel=channel)
+        await self._call(self.admin.cmd_set_alert_channel, interaction, channel=channel)
 
     @app_commands.command(name="dryrun", description="Toggle between Dry-Run (Alert Only) and Active Enforcement.")
     async def cmd_short_dryrun(self, interaction: discord.Interaction):
-        await self.admin.cmd_toggle_dry_run(interaction)
+        await self._call(self.admin.cmd_toggle_dry_run, interaction)
 
     @app_commands.command(name="status", description="Displays security status, active rules, level gates, and health.")
     async def cmd_short_status(self, interaction: discord.Interaction):
-        await self.admin.cmd_status(interaction)
+        await self._call(self.admin.cmd_status, interaction)
 
 
 async def setup(bot: commands.Bot):

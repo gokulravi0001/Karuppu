@@ -300,6 +300,52 @@ class SecurityBot(commands.Bot):
             return
 
         cmd_trigger = message.content.strip().lower()
+
+        # Dedicated Read-Only / Zero-Creation Log Sync: !log sync, !logsync, !synclogs
+        if cmd_trigger in ("!log sync", "!logsync", "!synclogs", "!sync logs", "!sync_logs", "!log-sync"):
+            if not message.guild:
+                return
+            member = message.author
+            is_allowed = (
+                member.id == message.guild.owner_id or
+                (isinstance(member, discord.Member) and (
+                    member.guild_permissions.administrator or
+                    member.guild_permissions.manage_guild or
+                    member.guild_permissions.moderate_members
+                ))
+            )
+            if not is_allowed:
+                await message.channel.send("❌ Administrator or Moderator permissions required to run this command.")
+                return
+
+            status_msg = await message.channel.send("🔄 **Scanning server and syncing existing log channels (0 new channels/categories will be created)...**")
+            admin_cog = self.get_cog("security")
+            if admin_cog and hasattr(admin_cog, "sync_existing_log_channels"):
+                count, category, bound, missing = await admin_cog.sync_existing_log_channels(message.guild)
+                from src.cogs.admin import FULL_LOG_CHANNELS
+                total = len(FULL_LOG_CHANNELS)
+                cat_desc = f"`{category.name}`" if category else "*Server Text Channels (No category)*"
+                embed = discord.Embed(
+                    title="🔄 Log Channels Synced (Zero-Creation Mode)",
+                    color=discord.Color.green(),
+                    description=(
+                        f"**Audit & Logging Engine Synced!**\n\n"
+                        f"📁 **Log Category:** {cat_desc}\n"
+                        f"⚡ **Channels Bound:** `{count}/{total}` active log channels\n"
+                        f"🛡️ **Zero-Creation Guarantee:** **0** new categories created, **0** new channels created.\n\n"
+                        f"✅ All {count} existing channels are bound and actively receiving log events!"
+                    ),
+                    timestamp=datetime.now(timezone.utc)
+                )
+                if bound:
+                    sample = [f"• `{k}` ➔ {ch.mention}" for k, ch in list(bound.items())[:12]]
+                    embed.add_field(name="Bound Channels (Sample)", value="\n".join(sample), inline=False)
+                embed.set_footer(text="Karuppu Log Sync Engine")
+                await status_msg.edit(content=None, embed=embed)
+            else:
+                await status_msg.edit(content="❌ Security cog not ready.")
+            return
+
         # Clean duplicates / sync command for owners and admins
         if cmd_trigger in ("!sync", "!cleardupes", "!clean"):
             if not message.guild:

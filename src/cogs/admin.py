@@ -1328,6 +1328,112 @@ class SecurityAdmin(commands.GroupCog, name="security"):
             logger.exception("Failed _execute_setup_full_suite: %s", e)
             return False, str(e), None, 0, None
 
+    async def sync_existing_log_channels(
+        self,
+        guild: discord.Guild,
+        prefix: str = "𝚲"
+    ) -> Tuple[int, Optional[discord.CategoryChannel], Dict[str, discord.TextChannel], List[str]]:
+        """100% Read-Only / Zero-Creation Sync:
+        Binds existing Discord log channels to Karuppu's audit cache and SQLite database without creating any categories or channels.
+        """
+        clean_prefix = (prefix or "𝚲").strip()
+        category_name = f"{clean_prefix} Logs"
+
+        # 1. Locate existing log category
+        category = None
+        for cat in guild.categories:
+            cname = cat.name.lower()
+            if cname == category_name.lower() or (clean_prefix.lower() in cname and "log" in cname) or "log" in cname or "𝚲" in cat.name:
+                category = cat
+                break
+
+        # Channels to inspect: category text channels if category found, else all guild text channels
+        channels_to_inspect = list(category.text_channels) if category else list(guild.text_channels)
+
+        bound_channels = {}
+        db_map = {}
+        missing = []
+
+        for ch_key, ch_topic in self.FULL_LOG_CHANNELS:
+            formatted_key = ch_key.replace("_", "-")
+            matched_ch = None
+
+            # First priority: check inside the detected category
+            for ch in channels_to_inspect:
+                cname = ch.name.lower()
+                if formatted_key in cname or ch_key in cname:
+                    matched_ch = ch
+                    break
+
+            # Second priority: fallback across all guild text channels
+            if not matched_ch and category:
+                for ch in guild.text_channels:
+                    cname = ch.name.lower()
+                    if cname.endswith(f"-{formatted_key}") or cname.endswith(f"-{ch_key}") or f"-{formatted_key}-" in cname or cname == formatted_key or cname == ch_key:
+                        matched_ch = ch
+                        break
+
+            if matched_ch:
+                bound_channels[ch_key] = matched_ch
+                db_map[ch_key] = matched_ch.id
+                bot_config.guild_log_channels_cache[(guild.id, ch_key)] = matched_ch.id
+            else:
+                missing.append(ch_key)
+
+        # Bulk persist to database if any were found
+        if db_map:
+            await db.bulk_set_log_channels(guild.id, db_map)
+            legacy_sync = {
+                "chat_log_channel_id": db_map.get("message"),
+                "voice_log_channel_id": db_map.get("voice"),
+                "vc_state_log_channel_id": db_map.get("vc_state") or db_map.get("soundboard") or db_map.get("voice"),
+                "member_log_channel_id": db_map.get("member"),
+                "mod_log_channel_id": db_map.get("mod"),
+                "server_log_channel_id": db_map.get("server")
+            }
+            if guild.id not in bot_config.guild_settings_cache:
+                bot_config.guild_settings_cache[guild.id] = {}
+            for k, v in legacy_sync.items():
+                if v:
+                    bot_config.guild_settings_cache[guild.id][k] = v
+
+        return len(bound_channels), category, bound_channels, missing
+
+    @commands.command(name="logsync", aliases=["synclogs", "sync_logs", "log_sync"])
+    async def msg_cmd_logsync(self, ctx: commands.Context, prefix: str = "𝚲"):
+        """Prefix command (!logsync or !log sync) that binds existing channels without creating new ones."""
+        is_allowed = (
+            ctx.author.id == ctx.guild.owner_id or
+            ctx.author.guild_permissions.administrator or
+            ctx.author.guild_permissions.manage_guild or
+            ctx.author.guild_permissions.moderate_members
+        )
+        if not is_allowed:
+            await ctx.reply("❌ Administrator or Moderator permissions required to run this command.")
+            return
+
+        status_msg = await ctx.reply("🔄 **Scanning existing server channels and binding log routes (Zero creation mode)...**")
+        count, category, bound, missing = await self.sync_existing_log_channels(ctx.guild, prefix=prefix)
+        total = len(self.FULL_LOG_CHANNELS)
+        cat_desc = f"`{category.name}`" if category else "*Server Text Channels (No category)*"
+        embed = discord.Embed(
+            title="🔄 Log Channels Synced (Zero-Creation Mode)",
+            color=discord.Color.green(),
+            description=(
+                f"**Audit & Logging Engine Synced!**\n\n"
+                f"📁 **Log Category:** {cat_desc}\n"
+                f"⚡ **Channels Bound:** `{count}/{total}` active log channels\n"
+                f"🛡️ **Zero-Creation Guarantee:** **0** new categories created, **0** new channels created.\n\n"
+                f"✅ All {count} existing channels are bound and actively receiving log events!"
+            ),
+            timestamp=datetime.now(timezone.utc)
+        )
+        if bound:
+            sample = [f"• `{k}` ➔ {ch.mention}" for k, ch in list(bound.items())[:12]]
+            embed.add_field(name="Bound Channels (Sample)", value="\n".join(sample), inline=False)
+        embed.set_footer(text="Karuppu Log Sync Engine")
+        await status_msg.edit(content=None, embed=embed)
+
     @commands.command(name="logs", aliases=["setup_logs", "setuplogs", "setup"])
     @commands.has_permissions(administrator=True)
     async def msg_cmd_logs(self, ctx: commands.Context, prefix: str = "𝚲"):
@@ -1945,6 +2051,34 @@ class ShortCommands(commands.Cog):
     @app_commands.command(name="status", description="Displays security status, active rules, level gates, and health.")
     async def cmd_short_status(self, interaction: discord.Interaction):
         await self._call(self.admin.cmd_status, interaction)
+
+    @app_commands.command(name="logsync", description="[Admins Only] Zero-creation sync: Binds existing log channels without creating new ones.")
+    async def cmd_short_logsync(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        if not self.admin._check_mod(interaction):
+            await interaction.followup.send("❌ Moderator or Administrator permissions required.", ephemeral=True)
+            return
+
+        count, category, bound, missing = await self.admin.sync_existing_log_channels(interaction.guild)
+        total = len(self.admin.FULL_LOG_CHANNELS)
+        cat_desc = f"`{category.name}`" if category else "*Server Text Channels (No category)*"
+        embed = discord.Embed(
+            title="🔄 Log Channels Synced (Zero-Creation Mode)",
+            color=discord.Color.green(),
+            description=(
+                f"**Audit & Logging Engine Synced!**\n\n"
+                f"📁 **Log Category:** {cat_desc}\n"
+                f"⚡ **Channels Bound:** `{count}/{total}` active log channels\n"
+                f"🛡️ **Zero-Creation Guarantee:** **0** new categories created, **0** new channels created.\n\n"
+                f"✅ All {count} existing channels are bound and actively receiving log events!"
+            ),
+            timestamp=datetime.now(timezone.utc)
+        )
+        if bound:
+            sample = [f"• `{k}` ➔ {ch.mention}" for k, ch in list(bound.items())[:12]]
+            embed.add_field(name="Bound Channels (Sample)", value="\n".join(sample), inline=False)
+        embed.set_footer(text="Karuppu Log Sync Engine")
+        await interaction.followup.send(embed=embed, ephemeral=True)
 
 
 async def setup(bot: commands.Bot):

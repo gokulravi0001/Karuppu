@@ -584,6 +584,25 @@ class TestFullSuiteLoggingResolution(unittest.TestCase):
         self.assertEqual(rows["joins"], 112235)
         conn.close()
 
+    def test_short_commands_and_lambda_prefix(self):
+        from src.cogs.admin import ShortCommands, SecurityAdmin
+        self.assertTrue(hasattr(ShortCommands, "cmd_short_logs"))
+        self.assertTrue(hasattr(ShortCommands, "cmd_short_vcban"))
+        self.assertTrue(hasattr(ShortCommands, "cmd_short_vckick"))
+        self.assertTrue(hasattr(ShortCommands, "cmd_short_vctimeout"))
+        self.assertTrue(hasattr(ShortCommands, "cmd_short_lock"))
+        self.assertTrue(hasattr(ShortCommands, "cmd_short_unlock"))
+        self.assertTrue(hasattr(ShortCommands, "cmd_short_purge"))
+        self.assertTrue(hasattr(ShortCommands, "cmd_short_setlog"))
+        self.assertTrue(hasattr(ShortCommands, "cmd_short_status"))
+
+        # Verify lambda prefix default
+        import inspect
+        sig = inspect.signature(SecurityAdmin.cmd_setup_full_suite.callback)
+        prefix_param = sig.parameters.get("prefix")
+        self.assertIsNotNone(prefix_param)
+        self.assertEqual(prefix_param.default, "𝚲")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -3,7 +3,7 @@ Handles owner-only bypass configuration, lockdown triggers, dry-run toggles, and
 """
 import logging
 from datetime import datetime, timezone, timedelta
-from typing import Optional
+from typing import Optional, List, Tuple, Any, Dict
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -58,6 +58,54 @@ class RaidPurgeConfirmView(discord.ui.View):
             child.disabled = True
         await interaction.message.edit(content="❌ Raid purge was cancelled. No members were affected.", embed=None, view=self)
         await interaction.response.send_message("Purge cancelled.", ephemeral=True)
+
+
+FULL_LOG_CHANNELS = [
+    ("antinuke", "Anti-nuke: mass ban/kick, mass channel/role wipe detections"),
+    ("message", "Message edits & deletions with attachment names and before/after comparisons"),
+    ("mod", "General moderation actions, warnings and staff notes"),
+    ("kick", "Member kick logs: who kicked whom with reasons and roles held"),
+    ("timeout", "Member timeout & untimeout logs: who timed out whom with durations and reasons"),
+    ("verify", "Verification events & level reward role unlocks"),
+    ("whitelist", "Owner-authorized bypass and whitelist additions / removals"),
+    ("security", "Security alerts, mode toggles, quarantine actions and Voice Guard status"),
+    ("server", "Server modifications: name, icon, banner, vanity URL, AFK and settings"),
+    ("role", "Role creations, deletions, edits, and who gave or removed roles to/from members"),
+    ("file", "Scanned uploads, malicious attachments blocked and archive gates"),
+    ("voice", "Voice moderation: who moved/server-muted/disconnected whom, and VC connections"),
+    ("soundboard", "Soundboard audio playback logs: audio name, sound ID and volume"),
+    ("vc_state", "Detailed member VC states: self-mute, self-deafen, webcam camera and screen share"),
+    ("member", "Member profile updates: nickname changes, avatars and moderation status"),
+    ("channel", "Channel creations, deletions, topic edits, slowmode and permission overwrites"),
+    ("invite", "Invite creations, deletions, vanity links and invite link tracking"),
+    ("ticket", "Ticket support logs: ticket creations, closures and staff assignments"),
+    ("admin", "Administrative operations, security bot setup and lockdown executions"),
+    ("boost", "Server boost events, booster milestones and server boost tier upgrades"),
+    ("raid", "Raid velocity tracking, raid bursts, lockdown containment & raid purges"),
+    ("misuse", "Spam ceiling hits (10-message limit), rate limit violations & ping abuse"),
+    ("ban", "Server bans, unbans, voice channel bans and voice unbans"),
+    ("joins", "Member joins with exact account age and <24h new account security flags"),
+    ("leaves", "Member leaves with duration spent in server and roles held"),
+    ("presence", "Member activity, streaming broadcasts and stage events"),
+    ("automod", "AutoMod detections: phishing domains, scam links, zalgo text sanitizations"),
+    ("relationship", "Server integrations, bot additions and webhook creations/deletions")
+]
+
+async def log_channel_autocomplete_fn(
+    interaction: discord.Interaction,
+    current: str
+) -> List[app_commands.Choice[str]]:
+    current_lower = current.lower().strip()
+    matches = []
+    for ch_key, ch_topic in FULL_LOG_CHANNELS:
+        if not current_lower or current_lower in ch_key.lower() or current_lower in ch_topic.lower():
+            display = f"{ch_key} - {ch_topic}"
+            if len(display) > 100:
+                display = display[:97] + "..."
+            matches.append(app_commands.Choice(name=display, value=ch_key))
+            if len(matches) >= 25:
+                break
+    return matches
 
 
 class SecurityAdmin(commands.GroupCog, name="security"):
@@ -1068,60 +1116,14 @@ class SecurityAdmin(commands.GroupCog, name="security"):
         embed.set_footer(text=f"Configured by {interaction.user}")
         await interaction.response.send_message(embed=embed)
 
-    FULL_LOG_CHANNELS = [
-        ("antinuke", "Anti-nuke: mass ban/kick, mass channel/role wipe detections"),
-        ("message", "Message edits & deletions with attachment names and before/after comparisons"),
-        ("mod", "General moderation actions, warnings and staff notes"),
-        ("kick", "Member kick logs: who kicked whom with reasons and roles held"),
-        ("timeout", "Member timeout & untimeout logs: who timed out whom with durations and reasons"),
-        ("verify", "Verification events & level reward role unlocks"),
-        ("whitelist", "Owner-authorized bypass and whitelist additions / removals"),
-        ("security", "Security alerts, mode toggles, quarantine actions and Voice Guard status"),
-        ("server", "Server modifications: name, icon, banner, vanity URL, AFK and settings"),
-        ("role", "Role creations, deletions, edits, and who gave or removed roles to/from members"),
-        ("file", "Scanned uploads, malicious attachments blocked and archive gates"),
-        ("voice", "Voice moderation: who moved/server-muted/disconnected whom, and VC connections"),
-        ("soundboard", "Soundboard audio playback logs: audio name, sound ID and volume"),
-        ("vc_state", "Detailed member VC states: self-mute, self-deafen, webcam camera and screen share"),
-        ("member", "Member profile updates: nickname changes, avatars and moderation status"),
-        ("channel", "Channel creations, deletions, topic edits, slowmode and permission overwrites"),
-        ("invite", "Invite creations, deletions, vanity links and invite link tracking"),
-        ("ticket", "Ticket support logs: ticket creations, closures and staff assignments"),
-        ("admin", "Administrative operations, security bot setup and lockdown executions"),
-        ("boost", "Server boost events, booster milestones and server boost tier upgrades"),
-        ("raid", "Raid velocity tracking, raid bursts, lockdown containment & raid purges"),
-        ("misuse", "Spam ceiling hits (10-message limit), rate limit violations & ping abuse"),
-        ("ban", "Server bans, unbans, voice channel bans and voice unbans"),
-        ("joins", "Member joins with exact account age and <24h new account security flags"),
-        ("leaves", "Member leaves with duration spent in server and roles held"),
-        ("presence", "Member activity, streaming broadcasts and stage events"),
-        ("automod", "AutoMod detections: phishing domains, scam links, zalgo text sanitizations"),
-        ("relationship", "Server integrations, bot additions and webhook creations/deletions")
-    ]
-
-    async def log_category_autocomplete(
-        self,
-        interaction: discord.Interaction,
-        current: str
-    ) -> List[app_commands.Choice[str]]:
-        current_lower = current.lower().strip()
-        matches = []
-        for ch_key, ch_topic in self.FULL_LOG_CHANNELS:
-            if not current_lower or current_lower in ch_key.lower() or current_lower in ch_topic.lower():
-                display = f"{ch_key} - {ch_topic}"
-                if len(display) > 100:
-                    display = display[:97] + "..."
-                matches.append(app_commands.Choice(name=display, value=ch_key))
-                if len(matches) >= 25:
-                    break
-        return matches
+    FULL_LOG_CHANNELS = FULL_LOG_CHANNELS
 
     @app_commands.command(name="set_log_channel", description="[Admins Only] Assign a dedicated channel for a specific log type.")
     @app_commands.describe(
         category="Which log category to configure (type to search all 28 categories)",
         channel="The channel where these logs should be posted"
     )
-    @app_commands.autocomplete(category=log_category_autocomplete)
+    @app_commands.autocomplete(category=log_channel_autocomplete_fn)
     async def cmd_set_log_channel(self, interaction: discord.Interaction, category: str, channel: discord.TextChannel):
         if not self._check_mod(interaction):
             await interaction.response.send_message("❌ Moderator permissions required.", ephemeral=True)
@@ -1163,17 +1165,33 @@ class SecurityAdmin(commands.GroupCog, name="security"):
         await interaction.response.send_message(embed=embed)
 
     @app_commands.command(
-        name="setup_full_suite",
-        description="[Admins Only] 1-Click setup of the full 24-channel logging suite from your screenshots."
+        name="logs",
+        description="[Admins Only] 1-Click setup of the full 28-channel logging suite with 𝚲."
     )
     @app_commands.describe(
-        prefix="Tag prefix for channel names (e.g. 'Blue' or 'Karuppu')",
+        prefix="Tag prefix for channel names (default: '𝚲')",
+        allowed_role="Optional: Extra staff/moderator role allowed to see these private log channels"
+    )
+    async def cmd_logs(
+        self,
+        interaction: discord.Interaction,
+        prefix: Optional[str] = "𝚲",
+        allowed_role: Optional[discord.Role] = None
+    ):
+        await self.cmd_setup_full_suite(interaction, prefix=prefix, allowed_role=allowed_role)
+
+    @app_commands.command(
+        name="setup_full_suite",
+        description="[Admins Only] 1-Click setup of the full 28-channel logging suite styled with 𝚲."
+    )
+    @app_commands.describe(
+        prefix="Tag prefix for channel names (default: '𝚲')",
         allowed_role="Optional: Extra staff/moderator role allowed to see these private log channels"
     )
     async def cmd_setup_full_suite(
         self,
         interaction: discord.Interaction,
-        prefix: Optional[str] = "Blue",
+        prefix: Optional[str] = "𝚲",
         allowed_role: Optional[discord.Role] = None
     ):
         if not self._check_mod(interaction):
@@ -1188,7 +1206,7 @@ class SecurityAdmin(commands.GroupCog, name="security"):
 
         await interaction.response.defer(ephemeral=True)
 
-        clean_prefix = (prefix or "Blue").strip()
+        clean_prefix = (prefix or "𝚲").strip()
 
         # 1. Base Overwrites: Hidden completely from @everyone
         overwrites = {
@@ -1293,11 +1311,9 @@ class SecurityAdmin(commands.GroupCog, name="security"):
                     f"• **Channel Pattern:** `🔒 . {clean_prefix} · <type> .`\n"
                     f"• **Total Channels:** **{total_count}** active channels\n"
                     f"• **New Granular Features:** Who gave role to whom, soundboard, kicks, timeouts, VC state\n"
-                    f"• **Access:** Server Administrators & allowed roles only."
-                )
-            )
+                    f"• **Access:** Server Administrators & allowed roles only.\n"
                     f"• **Auto-Binding:** 100% connected & routed\n\n"
-                    f"*(View your channel list to see all 24 channels organized cleanly in order!)*"
+                    f"*(View your channel list to see all {total_count} channels organized cleanly in order!)*"
                 )
             )
             if allowed_role:
@@ -1741,5 +1757,111 @@ class SecurityAdmin(commands.GroupCog, name="security"):
         embed.set_footer(text=f"Requested by {interaction.user}")
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
+
+class ShortCommands(commands.Cog):
+    """Ultra-fast, short slash commands for daily Discord moderation."""
+    def __init__(self, bot: commands.Bot, admin: SecurityAdmin):
+        self.bot = bot
+        self.admin = admin
+
+    @app_commands.command(name="logs", description="[Admins Only] 1-Click setup of 28-channel logging suite with 𝚲.")
+    @app_commands.describe(
+        prefix="Tag prefix for channel names (default: '𝚲')",
+        allowed_role="Optional: Extra staff/moderator role allowed to see these private log channels"
+    )
+    async def cmd_short_logs(self, interaction: discord.Interaction, prefix: Optional[str] = "𝚲", allowed_role: Optional[discord.Role] = None):
+        await self.admin.cmd_setup_full_suite(interaction, prefix=prefix, allowed_role=allowed_role)
+
+    @app_commands.command(name="vcban", description="Ban a member from connecting to voice channels.")
+    @app_commands.describe(
+        member="The member to ban from all voice channels",
+        reason="Reason for the voice ban",
+        duration_hours="Temporary ban duration in hours (leave empty for permanent)"
+    )
+    async def cmd_short_vcban(self, interaction: discord.Interaction, member: discord.Member, reason: Optional[str] = None, duration_hours: Optional[int] = None):
+        await self.admin.cmd_vc_ban(interaction, member=member, reason=reason, duration_hours=duration_hours)
+
+    @app_commands.command(name="vcunban", description="Unban a member from voice channels.")
+    @app_commands.describe(
+        user="The user to unban from voice (mention or ID)",
+        reason="Reason for lifting the voice ban"
+    )
+    async def cmd_short_vcunban(self, interaction: discord.Interaction, user: discord.User, reason: Optional[str] = None):
+        await self.admin.cmd_vc_unban(interaction, user=user, reason=reason)
+
+    @app_commands.command(name="vckick", description="Kick/disconnect a member from voice immediately.")
+    @app_commands.describe(
+        member="The member currently in voice to disconnect",
+        reason="Reason for the voice kick"
+    )
+    async def cmd_short_vckick(self, interaction: discord.Interaction, member: discord.Member, reason: Optional[str] = None):
+        await self.admin.cmd_vc_kick(interaction, member=member, reason=reason)
+
+    @app_commands.command(name="vctimeout", description="Timeout and block a member from voice channels for X minutes.")
+    @app_commands.describe(
+        member="The member to timeout from voice",
+        duration_minutes="Timeout duration in minutes (e.g. 5, 10, 60)",
+        reason="Reason for the voice timeout"
+    )
+    async def cmd_short_vctimeout(self, interaction: discord.Interaction, member: discord.Member, duration_minutes: int, reason: Optional[str] = None):
+        await self.admin.cmd_vc_timeout(interaction, member=member, duration_minutes=duration_minutes, reason=reason)
+
+    @app_commands.command(name="vcuntimeout", description="Lift voice channel timeout early.")
+    @app_commands.describe(
+        member="The member whose voice timeout to lift",
+        reason="Reason for lifting timeout"
+    )
+    async def cmd_short_vcuntimeout(self, interaction: discord.Interaction, member: discord.Member, reason: Optional[str] = None):
+        await self.admin.cmd_vc_untimeout(interaction, member=member, reason=reason)
+
+    @app_commands.command(name="vcbans", description="View active voice bans and timeouts.")
+    async def cmd_short_vcbans(self, interaction: discord.Interaction):
+        await self.admin.cmd_vc_banlist(interaction)
+
+    @app_commands.command(name="lock", description="Activate temporary emergency lockdown on public channels.")
+    @app_commands.describe(
+        duration_minutes="Duration in minutes (1-1440, default: 30)",
+        reason="Reason for the lockdown"
+    )
+    async def cmd_short_lock(self, interaction: discord.Interaction, duration_minutes: Optional[int] = 30, reason: Optional[str] = "Emergency containment"):
+        await self.admin.cmd_lockdown(interaction, duration_minutes=duration_minutes, reason=reason)
+
+    @app_commands.command(name="unlock", description="Lift an active server lockdown immediately.")
+    async def cmd_short_unlock(self, interaction: discord.Interaction):
+        await self.admin.cmd_unlock(interaction)
+
+    @app_commands.command(name="purge", description="One-click purge of raid accounts.")
+    @app_commands.describe(
+        within_minutes="Scan accounts that joined in the last N minutes (default: 15)",
+        action="Purge action: ban or kick"
+    )
+    async def cmd_short_purge(self, interaction: discord.Interaction, within_minutes: Optional[int] = 15, action: Optional[str] = "ban"):
+        await self.admin.cmd_purge_raid(interaction, within_minutes=within_minutes, action=action)
+
+    @app_commands.command(name="setlog", description="[Admins Only] Assign dedicated channel for a log category.")
+    @app_commands.describe(
+        category="Which log category to configure (type to search)",
+        channel="The channel where these logs should be posted"
+    )
+    @app_commands.autocomplete(category=log_channel_autocomplete_fn)
+    async def cmd_short_setlog(self, interaction: discord.Interaction, category: str, channel: discord.TextChannel):
+        await self.admin.cmd_set_log_channel(interaction, category=category, channel=channel)
+
+    @app_commands.command(name="setalert", description="[Admins Only] Set channel for security alerts and raid cards.")
+    @app_commands.describe(channel="The channel for mod logs and raid alerts")
+    async def cmd_short_setalert(self, interaction: discord.Interaction, channel: discord.TextChannel):
+        await self.admin.cmd_set_alert_channel(interaction, channel=channel)
+
+    @app_commands.command(name="dryrun", description="Toggle between Dry-Run (Alert Only) and Active Enforcement.")
+    async def cmd_short_dryrun(self, interaction: discord.Interaction):
+        await self.admin.cmd_toggle_dry_run(interaction)
+
+    @app_commands.command(name="status", description="Displays security status, active rules, level gates, and health.")
+    async def cmd_short_status(self, interaction: discord.Interaction):
+        await self.admin.cmd_status(interaction)
+
+
 async def setup(bot: commands.Bot):
-    await bot.add_cog(SecurityAdmin(bot))
+    admin_cog = SecurityAdmin(bot)
+    await bot.add_cog(admin_cog)
+    await bot.add_cog(ShortCommands(bot, admin_cog))

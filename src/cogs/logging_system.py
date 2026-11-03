@@ -997,6 +997,84 @@ class LoggingSystem(commands.Cog):
         except Exception:
             pass
 
+    @staticmethod
+    def _format_perm_name(perm: str) -> str:
+        name_map = {
+            "read_messages": "View Channel",
+            "view_channel": "View Channel",
+            "send_messages": "Send Messages",
+            "manage_messages": "Manage Messages",
+            "manage_channels": "Manage Channel",
+            "manage_permissions": "Manage Permissions",
+            "manage_webhooks": "Manage Webhooks",
+            "create_instant_invite": "Create Invite",
+            "embed_links": "Embed Links",
+            "attach_files": "Attach Files",
+            "read_message_history": "Read Message History",
+            "mention_everyone": "Mention Everyone",
+            "use_external_emojis": "Use External Emojis",
+            "use_external_stickers": "Use External Stickers",
+            "add_reactions": "Add Reactions",
+            "connect": "Connect",
+            "speak": "Speak",
+            "mute_members": "Mute Members",
+            "deafen_members": "Deafen Members",
+            "move_members": "Move Members",
+            "use_voice_activation": "Voice Activity",
+            "priority_speaker": "Priority Speaker",
+            "stream": "Video / Screen Share",
+            "use_soundboard": "Use Soundboard",
+            "use_external_sounds": "Use External Sounds",
+            "send_voice_messages": "Send Voice Messages",
+            "create_public_threads": "Create Public Threads",
+            "create_private_threads": "Create Private Threads",
+            "send_messages_in_threads": "Send Messages in Threads",
+            "manage_threads": "Manage Threads"
+        }
+        return name_map.get(perm, perm.replace("_", " ").title())
+
+    @classmethod
+    def _get_active_perms(cls, ow: discord.PermissionOverwrite) -> Tuple[List[str], List[str]]:
+        allowed = []
+        denied = []
+        for perm, val in ow:
+            name = cls._format_perm_name(perm)
+            if val is True:
+                allowed.append(name)
+            elif val is False:
+                denied.append(name)
+        return allowed, denied
+
+    async def _lookup_channel_moderator(
+        self,
+        guild: discord.Guild,
+        channel_id: int,
+        action: discord.AuditLogAction,
+        extra_target_id: Optional[int] = None,
+        max_age_seconds: float = 8.0
+    ) -> Tuple[Optional[Union[discord.Member, discord.User]], Optional[str]]:
+        """Looks up Discord audit log for channel updates or permission overwrite changes."""
+        if not guild.me.guild_permissions.view_audit_log:
+            return None, None
+        try:
+            await asyncio.sleep(0.4)
+            now_utc = datetime.now(timezone.utc)
+            async for entry in guild.audit_logs(limit=6, action=action):
+                time_diff = (now_utc - entry.created_at).total_seconds()
+                if time_diff < 0 or time_diff > max_age_seconds:
+                    continue
+                entry_tid = getattr(entry.target, "id", getattr(entry, "_target_id", None))
+                if entry_tid != channel_id:
+                    continue
+                if extra_target_id is not None and entry.extra is not None:
+                    extra_id = getattr(entry.extra, "id", None)
+                    if extra_id and extra_id != extra_target_id:
+                        continue
+                return entry.user, entry.reason
+        except Exception as e:
+            logger.debug("Failed querying audit log for channel action %s: %s", action, e)
+        return None, None
+
     @commands.Cog.listener()
     async def on_guild_channel_create(self, channel: discord.abc.GuildChannel):
         guild = channel.guild
@@ -1010,6 +1088,8 @@ class LoggingSystem(commands.Cog):
         if not log_channel:
             return
 
+        mod_user, reason = await self._lookup_channel_moderator(guild, channel.id, discord.AuditLogAction.channel_create)
+
         embed = discord.Embed(
             title="📁 Channel Created",
             color=discord.Color.green(),
@@ -1019,6 +1099,11 @@ class LoggingSystem(commands.Cog):
         embed.add_field(name="Type", value=f"`{str(channel.type).capitalize()}`", inline=True)
         if getattr(channel, "category", None):
             embed.add_field(name="Category", value=f"`{channel.category.name}`", inline=True)
+        if mod_user:
+            embed.add_field(name="Created By", value=f"{mod_user.mention} (`{mod_user.name}` | `{mod_user.id}`)", inline=True)
+        if reason:
+            embed.add_field(name="Reason", value=f"`{reason}`", inline=False)
+        embed.set_footer(text=f"Channel ID: {channel.id}")
         try:
             await log_channel.send(embed=embed)
         except Exception:
@@ -1037,6 +1122,8 @@ class LoggingSystem(commands.Cog):
         if not log_channel:
             return
 
+        mod_user, reason = await self._lookup_channel_moderator(guild, channel.id, discord.AuditLogAction.channel_delete)
+
         embed = discord.Embed(
             title="🗑️ Channel Deleted",
             color=discord.Color.red(),
@@ -1044,6 +1131,11 @@ class LoggingSystem(commands.Cog):
         )
         embed.add_field(name="Channel Name", value=f"`#{channel.name}` (`{channel.id}`)", inline=True)
         embed.add_field(name="Type", value=f"`{str(channel.type).capitalize()}`", inline=True)
+        if mod_user:
+            embed.add_field(name="Deleted By", value=f"{mod_user.mention} (`{mod_user.name}` | `{mod_user.id}`)", inline=True)
+        if reason:
+            embed.add_field(name="Reason", value=f"`{reason}`", inline=False)
+        embed.set_footer(text=f"Channel ID: {channel.id}")
         try:
             await log_channel.send(embed=embed)
         except Exception:
@@ -1062,28 +1154,219 @@ class LoggingSystem(commands.Cog):
         if not log_channel:
             return
 
-        changes = []
+        # -------------------------------------------------------------
+        # 1. CHANNEL ATTRIBUTE CHANGES (Name, Topic, Slowmode, Category, NSFW)
+        # -------------------------------------------------------------
+        channel_changes = []
         if before.name != after.name:
-            changes.append(f"• **Name:** `#{before.name}` ➔ `#{after.name}`")
+            channel_changes.append(f"• **Name:** `#{before.name}` ➔ `#{after.name}`")
         if getattr(before, "topic", None) != getattr(after, "topic", None):
-            changes.append("• **Topic changed**")
+            b_top = getattr(before, "topic", None) or "*None*"
+            a_top = getattr(after, "topic", None) or "*None*"
+            channel_changes.append(f"• **Topic:** {b_top} ➔ {a_top}")
         if getattr(before, "slowmode_delay", None) != getattr(after, "slowmode_delay", None):
-            changes.append(f"• **Slowmode:** `{before.slowmode_delay}s` ➔ `{after.slowmode_delay}s`")
+            channel_changes.append(f"• **Slowmode:** `{getattr(before, 'slowmode_delay', 0)}s` ➔ `{getattr(after, 'slowmode_delay', 0)}s`")
+        if getattr(before, "category", None) != getattr(after, "category", None):
+            b_cat = before.category.name if getattr(before, "category", None) else "*None*"
+            a_cat = after.category.name if getattr(after, "category", None) else "*None*"
+            channel_changes.append(f"• **Category:** `{b_cat}` ➔ `{a_cat}`")
+        if getattr(before, "nsfw", None) != getattr(after, "nsfw", None):
+            channel_changes.append(f"• **NSFW Status:** `{getattr(before, 'nsfw', False)}` ➔ `{getattr(after, 'nsfw', False)}`")
 
-        if not changes:
-            return
+        if channel_changes:
+            mod_user, reason = await self._lookup_channel_moderator(
+                guild, channel_id=after.id,
+                action=discord.AuditLogAction.channel_update
+            )
+            embed = discord.Embed(
+                title="⚙️ Channel Settings Updated",
+                color=discord.Color.blue(),
+                description="\n".join(channel_changes),
+                timestamp=datetime.now(timezone.utc)
+            )
+            embed.add_field(name="Channel", value=f"{after.mention} (`#{after.name}`)", inline=True)
+            if mod_user:
+                embed.add_field(name="Updated By", value=f"{mod_user.mention} (`{mod_user.name}` | `{mod_user.id}`)", inline=True)
+            if reason:
+                embed.add_field(name="Reason", value=f"`{reason}`", inline=False)
+            embed.set_footer(text=f"Channel ID: {after.id}")
+            try:
+                await log_channel.send(embed=embed)
+            except Exception:
+                pass
 
-        embed = discord.Embed(
-            title="⚙️ Channel Updated",
-            color=discord.Color.blue(),
-            description="\n".join(changes),
-            timestamp=datetime.now(timezone.utc)
-        )
-        embed.add_field(name="Channel", value=after.mention, inline=False)
-        try:
-            await log_channel.send(embed=embed)
-        except Exception:
-            pass
+        # -------------------------------------------------------------
+        # 2. OVERWRITES REMOVED (Roles or Members removed from channel)
+        # -------------------------------------------------------------
+        before_ow_map = dict(before.overwrites)
+        after_ow_map = dict(after.overwrites)
+
+        for target, before_ow in before_ow_map.items():
+            if target not in after_ow_map:
+                is_role = isinstance(target, discord.Role)
+                target_type = "Role" if is_role else "Member"
+                target_id = getattr(target, "id", None)
+
+                mod_user, reason = await self._lookup_channel_moderator(
+                    guild, channel_id=after.id,
+                    action=discord.AuditLogAction.overwrite_delete,
+                    extra_target_id=target_id
+                )
+
+                embed = discord.Embed(
+                    title=f"🚫 {target_type} Removed from Channel",
+                    color=discord.Color.red(),
+                    timestamp=datetime.now(timezone.utc)
+                )
+                embed.add_field(name="Channel", value=f"{after.mention} (`#{after.name}`)", inline=True)
+                if is_role:
+                    embed.add_field(name="Removed Role", value=f"{target.mention} (`{target.name}` | `{target.id}`)", inline=True)
+                else:
+                    embed.add_field(name="Removed Member", value=f"{target.mention} (`{target.name}` | `{target.id}`)", inline=True)
+
+                if mod_user:
+                    embed.add_field(name="Removed By", value=f"{mod_user.mention} (`{mod_user.name}` | `{mod_user.id}`)", inline=True)
+                else:
+                    embed.add_field(name="Removed By", value="*Unavailable in Audit Log*", inline=True)
+
+                if reason:
+                    embed.add_field(name="Reason", value=f"`{reason}`", inline=False)
+
+                allowed_prev, denied_prev = self._get_active_perms(before_ow)
+                if allowed_prev:
+                    embed.add_field(name="Revoked Allowed Permissions", value=", ".join(allowed_prev[:12]) + ("..." if len(allowed_prev) > 12 else ""), inline=False)
+                if denied_prev:
+                    embed.add_field(name="Revoked Denied Overwrites", value=", ".join(denied_prev[:12]) + ("..." if len(denied_prev) > 12 else ""), inline=False)
+
+                embed.set_footer(text=f"Channel ID: {after.id}")
+                try:
+                    await log_channel.send(embed=embed)
+                except Exception:
+                    pass
+
+        # -------------------------------------------------------------
+        # 3. OVERWRITES MODIFIED (Removing Perms or Denying/Granting Perms)
+        # -------------------------------------------------------------
+        for target, after_ow in after_ow_map.items():
+            if target in before_ow_map:
+                before_ow = before_ow_map[target]
+                if before_ow != after_ow:
+                    removed_or_denied = []
+                    granted = []
+                    reset_neutral = []
+
+                    for perm, before_val in before_ow:
+                        after_val = getattr(after_ow, perm)
+                        if before_val == after_val:
+                            continue
+                        p_name = self._format_perm_name(perm)
+                        if before_val is True and after_val is False:
+                            removed_or_denied.append(f"⛔ **{p_name}**: `Allowed` ➔ `Denied`")
+                        elif before_val is True and after_val is None:
+                            removed_or_denied.append(f"⚪ **{p_name}**: `Allowed` ➔ `Removed (Default)`")
+                        elif before_val is None and after_val is False:
+                            removed_or_denied.append(f"❌ **{p_name}**: `Default` ➔ `Denied`")
+                        elif before_val is False and after_val is None:
+                            reset_neutral.append(f"⚪ **{p_name}**: `Denied` ➔ `Removed (Default)`")
+                        elif before_val is not True and after_val is True:
+                            granted.append(f"✅ **{p_name}**: `Granted`")
+
+                    if removed_or_denied or granted or reset_neutral:
+                        target_id = getattr(target, "id", None)
+                        mod_user, reason = await self._lookup_channel_moderator(
+                            guild, channel_id=after.id,
+                            action=discord.AuditLogAction.overwrite_update,
+                            extra_target_id=target_id
+                        )
+                        is_role = isinstance(target, discord.Role)
+                        target_type = "Role" if is_role else "Member"
+
+                        if removed_or_denied:
+                            title = f"🔒 Channel Permissions Removed / Denied ({target_type})"
+                            color = discord.Color.orange()
+                        elif granted:
+                            title = f"🔓 Channel Permissions Granted ({target_type})"
+                            color = discord.Color.green()
+                        else:
+                            title = f"⚙️ Channel Permissions Reset ({target_type})"
+                            color = discord.Color.blue()
+
+                        embed = discord.Embed(
+                            title=title,
+                            color=color,
+                            timestamp=datetime.now(timezone.utc)
+                        )
+                        embed.add_field(name="Channel", value=f"{after.mention} (`#{after.name}`)", inline=True)
+                        if is_role:
+                            embed.add_field(name="Role", value=f"{target.mention} (`{target.name}` | `{target.id}`)", inline=True)
+                        else:
+                            embed.add_field(name="Member", value=f"{target.mention} (`{target.name}` | `{target.id}`)", inline=True)
+
+                        if mod_user:
+                            embed.add_field(name="Action By", value=f"{mod_user.mention} (`{mod_user.name}` | `{mod_user.id}`)", inline=True)
+                        else:
+                            embed.add_field(name="Action By", value="*Unavailable in Audit Log*", inline=True)
+
+                        if reason:
+                            embed.add_field(name="Reason", value=f"`{reason}`", inline=False)
+
+                        if removed_or_denied:
+                            embed.add_field(name="🚫 Permissions Removed / Denied", value="\n".join(removed_or_denied[:12]), inline=False)
+                        if granted:
+                            embed.add_field(name="✅ Permissions Granted", value="\n".join(granted[:12]), inline=False)
+                        if reset_neutral and not removed_or_denied:
+                            embed.add_field(name="⚪ Permissions Reset to Default", value="\n".join(reset_neutral[:12]), inline=False)
+
+                        embed.set_footer(text=f"Channel ID: {after.id}")
+                        try:
+                            await log_channel.send(embed=embed)
+                        except Exception:
+                            pass
+
+        # -------------------------------------------------------------
+        # 4. OVERWRITES ADDED (Roles or Members added to channel)
+        # -------------------------------------------------------------
+        for target, after_ow in after_ow_map.items():
+            if target not in before_ow_map:
+                is_role = isinstance(target, discord.Role)
+                target_type = "Role" if is_role else "Member"
+                target_id = getattr(target, "id", None)
+
+                mod_user, reason = await self._lookup_channel_moderator(
+                    guild, channel_id=after.id,
+                    action=discord.AuditLogAction.overwrite_create,
+                    extra_target_id=target_id
+                )
+                embed = discord.Embed(
+                    title=f"🛡️ {target_type} Added to Channel Overwrites",
+                    color=discord.Color.green(),
+                    timestamp=datetime.now(timezone.utc)
+                )
+                embed.add_field(name="Channel", value=f"{after.mention} (`#{after.name}`)", inline=True)
+                if is_role:
+                    embed.add_field(name="Added Role", value=f"{target.mention} (`{target.name}` | `{target.id}`)", inline=True)
+                else:
+                    embed.add_field(name="Added Member", value=f"{target.mention} (`{target.name}` | `{target.id}`)", inline=True)
+
+                if mod_user:
+                    embed.add_field(name="Added By", value=f"{mod_user.mention} (`{mod_user.name}` | `{mod_user.id}`)", inline=True)
+                else:
+                    embed.add_field(name="Added By", value="*Unavailable in Audit Log*", inline=True)
+
+                if reason:
+                    embed.add_field(name="Reason", value=f"`{reason}`", inline=False)
+
+                allowed_new, denied_new = self._get_active_perms(after_ow)
+                if allowed_new:
+                    embed.add_field(name="Granted Permissions", value=", ".join(allowed_new[:12]) + ("..." if len(allowed_new) > 12 else ""), inline=False)
+                if denied_new:
+                    embed.add_field(name="Denied Permissions", value=", ".join(denied_new[:12]) + ("..." if len(denied_new) > 12 else ""), inline=False)
+
+                embed.set_footer(text=f"Channel ID: {after.id}")
+                try:
+                    await log_channel.send(embed=embed)
+                except Exception:
+                    pass
 
     @commands.Cog.listener()
     async def on_guild_role_create(self, role: discord.Role):

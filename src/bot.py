@@ -41,6 +41,7 @@ class SecurityBot(commands.Bot):
             intents=intents,
             help_command=None
         )
+        self.http.user_agent = "DiscordBot (https://github.com/Rapptz/discord.py, 2.7.1) Python/3.11 aiohttp/3.9.5"
         self.health_app: web.Application = web.Application()
         self.health_runner: web.AppRunner = None
         self.keep_alive_task: Optional[asyncio.Task] = None
@@ -246,27 +247,9 @@ class SecurityBot(commands.Bot):
         logger.info("Monitored Guilds: %d", len(self.guilds))
         logger.info("=" * 50)
 
-        # Sync slash commands
-        try:
-            if bot_config.guild_id:
-                guild = discord.Object(id=bot_config.guild_id)
-                self.tree.copy_global_to(guild=guild)
-                synced = await self.tree.sync(guild=guild)
-                logger.info("Synchronized %d slash commands directly to target guild %d", len(synced), bot_config.guild_id)
-            else:
-                # 1. Clear any old guild-specific duplicate commands so servers have 1 clean copy
-                for g in self.guilds:
-                    try:
-                        self.tree.clear_commands(guild=g)
-                        await self.tree.sync(guild=g)
-                    except Exception as ge:
-                        logger.warning("Could not clear guild commands for %d: %s", g.id, ge)
-
-                # 2. Sync global commands cleanly
-                synced = await self.tree.sync()
-                logger.info("Synchronized %d global slash commands (no guild duplicates)", len(synced))
-        except Exception as e:
-            logger.error("Failed to sync slash commands: %s", e)
+        # Slash commands: avoid spamming global tree.sync() on every restart to prevent Cloudflare 429 IP bans.
+        # Use '!sync' in chat to refresh commands on-demand.
+        logger.info("Bot connected to Gateway. Slash commands are registered globally (use '!sync' to force refresh).")
 
         # 3. Auto-reconnect 24/7 Voice Guard to designated channels
         for guild in self.guilds:

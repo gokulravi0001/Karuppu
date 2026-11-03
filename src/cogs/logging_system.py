@@ -1448,10 +1448,32 @@ class LoggingSystem(commands.Cog):
         if before.banner != after.banner:
             changes.append("• **Server Banner updated**")
         if before.afk_channel != after.afk_channel:
-            changes.append(f"• **AFK Channel:** {getattr(after.afk_channel, 'mention', 'None')}")
+            b_afk = before.afk_channel.mention if before.afk_channel else "*None*"
+            a_afk = after.afk_channel.mention if after.afk_channel else "*None*"
+            changes.append(f"• **AFK Channel:** {b_afk} ➔ {a_afk}")
+        if getattr(before, "description", None) != getattr(after, "description", None):
+            changes.append("• **Server Description updated**")
+        if getattr(before, "rules_channel", None) != getattr(after, "rules_channel", None):
+            b_rules = before.rules_channel.mention if before.rules_channel else "*None*"
+            a_rules = after.rules_channel.mention if after.rules_channel else "*None*"
+            changes.append(f"• **Rules Channel:** {b_rules} ➔ {a_rules}")
+        if getattr(before, "verification_level", None) != getattr(after, "verification_level", None):
+            changes.append(f"• **Verification Level:** `{before.verification_level}` ➔ `{after.verification_level}`")
 
         if not changes:
             return
+
+        mod_user = None
+        if after.me.guild_permissions.view_audit_log:
+            try:
+                await asyncio.sleep(0.4)
+                now_utc = datetime.now(timezone.utc)
+                async for entry in after.audit_logs(limit=4, action=discord.AuditLogAction.guild_update):
+                    if abs((now_utc - entry.created_at).total_seconds()) < 10:
+                        mod_user = entry.user
+                        break
+            except Exception:
+                pass
 
         embed = discord.Embed(
             title="🏢 Server Settings Updated",
@@ -1459,8 +1481,11 @@ class LoggingSystem(commands.Cog):
             description="\n".join(changes),
             timestamp=datetime.now(timezone.utc)
         )
+        if mod_user:
+            embed.add_field(name="Updated By", value=f"{mod_user.mention} (`{mod_user.name}` | `{mod_user.id}`)", inline=True)
         if after.icon:
             embed.set_thumbnail(url=after.icon.url)
+        embed.set_footer(text=f"Server ID: {after.id}")
         try:
             await log_channel.send(embed=embed)
         except Exception:
@@ -1472,17 +1497,83 @@ class LoggingSystem(commands.Cog):
 
         # 1. Nickname changed -> member log
         if before.nick != after.nick:
-            mem_ch = self._get_target_channel(guild, "member")
+            mem_ch = self._get_target_channel(guild, "member") or self._get_target_channel(guild, "server") or self._get_target_channel(guild, "mod")
+            if mem_ch:
+                mod_user = None
+                audit_reason = None
+                if guild.me.guild_permissions.view_audit_log:
+                    try:
+                        await asyncio.sleep(0.4)
+                        now_utc = datetime.now(timezone.utc)
+                        async for entry in guild.audit_logs(limit=5, action=discord.AuditLogAction.member_update):
+                            if entry.target and entry.target.id == after.id:
+                                if abs((now_utc - entry.created_at).total_seconds()) < 10:
+                                    mod_user = entry.user
+                                    audit_reason = entry.reason
+                                    break
+                    except Exception as e:
+                        logger.debug("Failed querying audit log for member nickname update: %s", e)
+
+                if before.nick and not after.nick:
+                    title = "👤 Member Nickname Removed / Reset"
+                    color = discord.Color.orange()
+                    b_str = f"`{before.nick}`"
+                    a_str = f"*Reset to username* (`{after.name}`)"
+                elif not before.nick and after.nick:
+                    title = "👤 Member Nickname Added"
+                    color = discord.Color.green()
+                    b_str = f"*None* (`{before.name}`)"
+                    a_str = f"`{after.nick}`"
+                else:
+                    title = "👤 Member Nickname Changed"
+                    color = discord.Color.blue()
+                    b_str = f"`{before.nick}`"
+                    a_str = f"`{after.nick}`"
+
+                embed = discord.Embed(
+                    title=title,
+                    color=color,
+                    timestamp=datetime.now(timezone.utc)
+                )
+                embed.set_author(name=str(after), icon_url=after.display_avatar.url)
+                embed.add_field(name="Member", value=f"{after.mention} (`{after.name}` | `{after.id}`)", inline=False)
+                embed.add_field(name="Before", value=b_str, inline=True)
+                embed.add_field(name="After", value=a_str, inline=True)
+
+                if mod_user:
+                    if mod_user.id == after.id:
+                        embed.add_field(name="Changed By", value=f"{after.mention} *(Self)*", inline=True)
+                    else:
+                        embed.add_field(name="Changed By", value=f"{mod_user.mention} (`{mod_user.name}` | `{mod_user.id}`)", inline=True)
+                else:
+                    embed.add_field(name="Changed By", value=f"{after.mention} *(Self or Staff)*", inline=True)
+
+                if audit_reason:
+                    embed.add_field(name="Reason", value=f"`{audit_reason}`", inline=False)
+
+                embed.set_footer(text=f"User ID: {after.id}")
+                try:
+                    await mem_ch.send(embed=embed)
+                except Exception:
+                    pass
+
+        # 1b. Server-specific Avatar changed -> member log
+        if getattr(before, "guild_avatar", None) != getattr(after, "guild_avatar", None):
+            mem_ch = self._get_target_channel(guild, "member") or self._get_target_channel(guild, "server")
             if mem_ch:
                 embed = discord.Embed(
-                    title="👤 Member Nickname Changed",
+                    title="🖼️ Member Server Avatar Changed",
                     color=discord.Color.blue(),
                     timestamp=datetime.now(timezone.utc)
                 )
                 embed.set_author(name=str(after), icon_url=after.display_avatar.url)
-                embed.add_field(name="Member", value=after.mention, inline=True)
-                embed.add_field(name="Before", value=f"`{before.nick or before.name}`", inline=True)
-                embed.add_field(name="After", value=f"`{after.nick or after.name}`", inline=True)
+                embed.add_field(name="Member", value=f"{after.mention} (`{after.name}` | `{after.id}`)", inline=True)
+                if after.guild_avatar:
+                    embed.set_thumbnail(url=after.guild_avatar.url)
+                    embed.add_field(name="Status", value="Server avatar updated", inline=True)
+                else:
+                    embed.add_field(name="Status", value="Server avatar removed (reverted to global avatar)", inline=True)
+                embed.set_footer(text=f"User ID: {after.id}")
                 try:
                     await mem_ch.send(embed=embed)
                 except Exception:

@@ -1071,14 +1071,18 @@ class SecurityAdmin(commands.GroupCog, name="security"):
     FULL_LOG_CHANNELS = [
         ("antinuke", "Anti-nuke: mass ban/kick, mass channel/role wipe detections"),
         ("message", "Message edits & deletions with attachment names and before/after comparisons"),
-        ("mod", "Moderation actions: kicks, timeouts, untimeouts, warnings and staff notes"),
+        ("mod", "General moderation actions, warnings and staff notes"),
+        ("kick", "Member kick logs: who kicked whom with reasons and roles held"),
+        ("timeout", "Member timeout & untimeout logs: who timed out whom with durations and reasons"),
         ("verify", "Verification events & level reward role unlocks"),
         ("whitelist", "Owner-authorized bypass and whitelist additions / removals"),
         ("security", "Security alerts, mode toggles, quarantine actions and Voice Guard status"),
         ("server", "Server modifications: name, icon, banner, vanity URL, AFK and settings"),
-        ("role", "Role creations, deletions, permission changes and member role assignments"),
+        ("role", "Role creations, deletions, edits, and who gave or removed roles to/from members"),
         ("file", "Scanned uploads, malicious attachments blocked and archive gates"),
-        ("voice", "Voice channel activity: joins, leaves, moves, server mutes, video & soundboard"),
+        ("voice", "Voice moderation: who moved/server-muted/disconnected whom, and VC connections"),
+        ("soundboard", "Soundboard audio playback logs: audio name, sound ID and volume"),
+        ("vc_state", "Detailed member VC states: self-mute, self-deafen, webcam camera and screen share"),
         ("member", "Member profile updates: nickname changes, avatars and moderation status"),
         ("channel", "Channel creations, deletions, topic edits, slowmode and permission overwrites"),
         ("invite", "Invite creations, deletions, vanity links and invite link tracking"),
@@ -1095,57 +1099,52 @@ class SecurityAdmin(commands.GroupCog, name="security"):
         ("relationship", "Server integrations, bot additions and webhook creations/deletions")
     ]
 
+    async def log_category_autocomplete(
+        self,
+        interaction: discord.Interaction,
+        current: str
+    ) -> List[app_commands.Choice[str]]:
+        current_lower = current.lower().strip()
+        matches = []
+        for ch_key, ch_topic in self.FULL_LOG_CHANNELS:
+            if not current_lower or current_lower in ch_key.lower() or current_lower in ch_topic.lower():
+                display = f"{ch_key} - {ch_topic}"
+                if len(display) > 100:
+                    display = display[:97] + "..."
+                matches.append(app_commands.Choice(name=display, value=ch_key))
+                if len(matches) >= 25:
+                    break
+        return matches
+
     @app_commands.command(name="set_log_channel", description="[Admins Only] Assign a dedicated channel for a specific log type.")
     @app_commands.describe(
-        category="Which log category to configure",
+        category="Which log category to configure (type to search all 28 categories)",
         channel="The channel where these logs should be posted"
     )
-    @app_commands.choices(category=[
-        app_commands.Choice(name="🛡️ antinuke - Anti-Nuke logs", value="antinuke"),
-        app_commands.Choice(name="💬 message - Message edits & deletes", value="message"),
-        app_commands.Choice(name="🔨 mod - Kicks, timeouts & mod actions", value="mod"),
-        app_commands.Choice(name="✅ verify - Verification & trust gates", value="verify"),
-        app_commands.Choice(name="📋 whitelist - Bypass additions/removals", value="whitelist"),
-        app_commands.Choice(name="🚨 security - Security alerts & raid mode", value="security"),
-        app_commands.Choice(name="🏢 server - Server settings & updates", value="server"),
-        app_commands.Choice(name="🛡️ role - Role create/delete & member roles", value="role"),
-        app_commands.Choice(name="📁 file - File scanner & blocked uploads", value="file"),
-        app_commands.Choice(name="🔊 voice - Voice joins, leaves, moves & mute", value="voice"),
-        app_commands.Choice(name="👤 member - Member profile & nick changes", value="member"),
-        app_commands.Choice(name="📂 channel - Channel create/delete/updates", value="channel"),
-        app_commands.Choice(name="✉️ invite - Invite creation & deletions", value="invite"),
-        app_commands.Choice(name="🎫 ticket - Ticket creations & transcripts", value="ticket"),
-        app_commands.Choice(name="👑 admin - Admin commands & lockdowns", value="admin"),
-        app_commands.Choice(name="🚀 boost - Server boost events & tiers", value="boost"),
-        app_commands.Choice(name="⚔️ raid - Raid join bursts & purges", value="raid"),
-        app_commands.Choice(name="⚠️ misuse - Spam repetitions & ping abuse", value="misuse"),
-        app_commands.Choice(name="⛔ ban - Server & VC bans and unbans", value="ban"),
-        app_commands.Choice(name="📥 joins - Dedicated member joins & age", value="joins"),
-        app_commands.Choice(name="📤 leaves - Dedicated member leaves & roles", value="leaves"),
-        app_commands.Choice(name="📡 presence - Member activity & stream", value="presence"),
-        app_commands.Choice(name="🤖 automod - Phishing, zalgo & scam blocks", value="automod"),
-        app_commands.Choice(name="🔗 relationship - Bot invites & webhooks", value="relationship"),
-    ])
-    async def cmd_set_log_channel(self, interaction: discord.Interaction, category: app_commands.Choice[str], channel: discord.TextChannel):
+    @app_commands.autocomplete(category=log_category_autocomplete)
+    async def cmd_set_log_channel(self, interaction: discord.Interaction, category: str, channel: discord.TextChannel):
         if not self._check_mod(interaction):
             await interaction.response.send_message("❌ Moderator permissions required.", ephemeral=True)
             return
 
+        cat_val = category.strip().lower()
         guild_id = interaction.guild.id
-        await db.set_dedicated_log_channel(guild_id, category.value, channel.id)
-        bot_config.guild_log_channels_cache[(guild_id, category.value)] = channel.id
+        await db.set_dedicated_log_channel(guild_id, cat_val, channel.id)
+        bot_config.guild_log_channels_cache[(guild_id, cat_val)] = channel.id
 
         # Also sync to legacy settings if applicable
         legacy_cats = {
             "message": "chat", "chat": "chat",
             "voice": "voice",
             "presence": "vc_state",
+            "vc_state": "vc_state",
+            "soundboard": "vc_state",
             "member": "member",
             "mod": "mod",
             "server": "server"
         }
-        if category.value in legacy_cats:
-            legacy_key = legacy_cats[category.value]
+        if cat_val in legacy_cats:
+            legacy_key = legacy_cats[cat_val]
             await db.set_log_channel(guild_id, legacy_key, channel.id)
             if guild_id not in bot_config.guild_settings_cache:
                 bot_config.guild_settings_cache[guild_id] = {}
@@ -1155,7 +1154,7 @@ class SecurityAdmin(commands.GroupCog, name="security"):
             title="📑 Dedicated Log Channel Configured",
             color=discord.Color.green(),
             description=(
-                f"**Category:** `{category.name}`\n"
+                f"**Category:** `{cat_val}`\n"
                 f"**Log Destination:** {channel.mention}\n\n"
                 f"All future events for this category will be logged here."
             )
@@ -1214,19 +1213,31 @@ class SecurityAdmin(commands.GroupCog, name="security"):
         category_name = f"{clean_prefix} Logs"
 
         try:
-            category = await guild.create_category(category_name, overwrites=overwrites, reason="Automated 24-channel logging suite setup")
+            # Check if category already exists; if not, create it
+            category = discord.utils.find(lambda c: c.name.lower() == category_name.lower(), guild.categories)
+            if category:
+                try:
+                    await category.edit(overwrites=overwrites)
+                except Exception:
+                    pass
+            else:
+                category = await guild.create_category(category_name, overwrites=overwrites, reason="Automated 28-channel logging suite setup")
 
+            existing_channels = {ch.name.lower(): ch for ch in category.text_channels}
             created_channels = {}
             db_map = {}
 
             for ch_key, ch_topic in self.FULL_LOG_CHANNELS:
-                ch_name = f". {clean_prefix} · {ch_key} ."
-                ch = await guild.create_text_channel(
-                    ch_name,
-                    category=category,
-                    topic=ch_topic,
-                    reason=f"Automated logging suite setup ({ch_key})"
-                )
+                formatted_key = ch_key.replace('_', '-')
+                ch_name = f". {clean_prefix} · {formatted_key} ."
+                ch = existing_channels.get(ch_name.lower())
+                if not ch:
+                    ch = await guild.create_text_channel(
+                        ch_name,
+                        category=category,
+                        topic=ch_topic,
+                        reason=f"Automated logging suite setup ({ch_key})"
+                    )
                 created_channels[ch_key] = ch
                 db_map[ch_key] = ch.id
                 bot_config.guild_log_channels_cache[(guild.id, ch_key)] = ch.id
@@ -1238,7 +1249,7 @@ class SecurityAdmin(commands.GroupCog, name="security"):
             legacy_sync = {
                 "chat_log_channel_id": db_map.get("message"),
                 "voice_log_channel_id": db_map.get("voice"),
-                "vc_state_log_channel_id": db_map.get("voice"),
+                "vc_state_log_channel_id": db_map.get("vc_state") or db_map.get("soundboard") or db_map.get("voice"),
                 "member_log_channel_id": db_map.get("member"),
                 "mod_log_channel_id": db_map.get("mod"),
                 "server_log_channel_id": db_map.get("server")
@@ -1256,14 +1267,16 @@ class SecurityAdmin(commands.GroupCog, name="security"):
 
             # Post Welcome & Orientation card in the security log channel
             welcome_target = created_channels.get("security") or created_channels.get("mod") or list(created_channels.values())[0]
+            total_count = len(self.FULL_LOG_CHANNELS)
             welcome_embed = discord.Embed(
                 title=f"𓆩『 {clean_prefix.upper()} LOGGING SUITE ACTIVE 』𓆪",
                 color=discord.Color.from_rgb(88, 101, 242),
                 description=(
                     f"Welcome to the **{clean_prefix} Logging Suite** for **{guild.name}**!\n\n"
-                    f"All **24 dedicated security log channels** have been created, locked, and auto-bound to Karuppu's audit engine.\n\n"
+                    f"All **{total_count} dedicated security log channels** are active, locked, and auto-bound to Karuppu's audit engine.\n\n"
                     f"🔒 **Visibility:** Hidden from `@everyone` • Authorized Staff Only\n"
-                    f"⚡ **Active Channels:** `24/24` Channels Online"
+                    f"⚡ **Active Channels:** `{total_count}/{total_count}` Channels Online\n"
+                    f"🛡️ **Role Tracking:** Real-time logging of who gave/removed roles to/from members."
                 ),
                 timestamp=datetime.now(timezone.utc)
             )
@@ -1272,13 +1285,17 @@ class SecurityAdmin(commands.GroupCog, name="security"):
 
             # Summary to moderator
             reply_embed = discord.Embed(
-                title=f"🎉 Full 24-Channel Logging Suite Created!",
+                title=f"🎉 Complete {total_count}-Channel Logging Suite Configured!",
                 color=discord.Color.green(),
                 description=(
-                    f"Successfully created private category **`{category.name}`** with all 24 dedicated channels matching your template!\n\n"
+                    f"Successfully configured private category **`{category.name}`** with all {total_count} dedicated action channels!\n\n"
                     f"• **Category:** `{category.name}`\n"
                     f"• **Channel Pattern:** `🔒 . {clean_prefix} · <type> .`\n"
-                    f"• **Total Channels:** **24** active channels\n"
+                    f"• **Total Channels:** **{total_count}** active channels\n"
+                    f"• **New Granular Features:** Who gave role to whom, soundboard, kicks, timeouts, VC state\n"
+                    f"• **Access:** Server Administrators & allowed roles only."
+                )
+            )
                     f"• **Auto-Binding:** 100% connected & routed\n\n"
                     f"*(View your channel list to see all 24 channels organized cleanly in order!)*"
                 )

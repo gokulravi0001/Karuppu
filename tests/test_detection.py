@@ -485,18 +485,18 @@ class TestFullSuiteLoggingResolution(unittest.TestCase):
                 del bot_config.guild_log_channels_cache[k]
         bot_config.guild_settings_cache.pop(guild_id, None)
 
-        # 1. Exact resolution test when full suite is configured
-        all_24_channels = [
-            "antinuke", "message", "mod", "verify", "whitelist", "security",
-            "server", "role", "file", "voice", "member", "channel",
+        # 1. Exact resolution test when full suite is configured (all 28 action channels)
+        all_28_channels = [
+            "antinuke", "message", "mod", "kick", "timeout", "verify", "whitelist", "security",
+            "server", "role", "file", "voice", "soundboard", "vc_state", "member", "channel",
             "invite", "ticket", "admin", "boost", "raid", "misuse",
             "ban", "joins", "leaves", "presence", "automod", "relationship"
         ]
         dummy_base_id = 100000000
-        for i, ch_key in enumerate(all_24_channels):
+        for i, ch_key in enumerate(all_28_channels):
             bot_config.guild_log_channels_cache[(guild_id, ch_key)] = dummy_base_id + i
 
-        for i, ch_key in enumerate(all_24_channels):
+        for i, ch_key in enumerate(all_28_channels):
             res_id = bot_config.get_log_channel_id(guild_id, ch_key)
             self.assertEqual(res_id, dummy_base_id + i, f"Failed exact resolution for {ch_key}")
 
@@ -511,22 +511,41 @@ class TestFullSuiteLoggingResolution(unittest.TestCase):
         bot_config.guild_log_channels_cache[(guild_id, "member")] = 7703
         bot_config.guild_log_channels_cache[(guild_id, "server")] = 7704
         bot_config.guild_log_channels_cache[(guild_id, "chat")] = 7705
+        bot_config.guild_log_channels_cache[(guild_id, "voice")] = 7706
 
         # Check fallbacks
         self.assertEqual(bot_config.get_log_channel_id(guild_id, "antinuke"), 7701) # antinuke -> security
         self.assertEqual(bot_config.get_log_channel_id(guild_id, "raid"), 7701)     # raid -> security
         self.assertEqual(bot_config.get_log_channel_id(guild_id, "misuse"), 7701)   # misuse -> security
         self.assertEqual(bot_config.get_log_channel_id(guild_id, "ban"), 7702)      # ban -> mod
+        self.assertEqual(bot_config.get_log_channel_id(guild_id, "kick"), 7702)     # kick -> mod
+        self.assertEqual(bot_config.get_log_channel_id(guild_id, "timeout"), 7702)  # timeout -> mod
         self.assertEqual(bot_config.get_log_channel_id(guild_id, "joins"), 7703)    # joins -> member
         self.assertEqual(bot_config.get_log_channel_id(guild_id, "leaves"), 7703)   # leaves -> member
         self.assertEqual(bot_config.get_log_channel_id(guild_id, "role"), 7704)     # role -> server
         self.assertEqual(bot_config.get_log_channel_id(guild_id, "channel"), 7704)  # channel -> server
         self.assertEqual(bot_config.get_log_channel_id(guild_id, "message"), 7705)  # message -> chat
+        self.assertEqual(bot_config.get_log_channel_id(guild_id, "soundboard"), 7706) # soundboard -> vc_state -> voice
+        self.assertEqual(bot_config.get_log_channel_id(guild_id, "vc_state"), 7706)   # vc_state -> voice
 
         # Cleanup
         for k in list(bot_config.guild_log_channels_cache.keys()):
             if k[0] == guild_id:
                 del bot_config.guild_log_channels_cache[k]
+
+    def test_format_role_list(self):
+        from src.cogs.logging_system import format_role_list
+        class DummyRole:
+            def __init__(self, name, id_val):
+                self.name = name
+                self.id = id_val
+                self.mention = f"<@&{id_val}>"
+
+        roles = [DummyRole("Staff", 111), DummyRole("VIP", 222)]
+        formatted = format_role_list(roles)
+        self.assertIn("<@&111>", formatted)
+        self.assertIn("<@&222>", formatted)
+        self.assertEqual(format_role_list([]), "*None*")
 
     def test_guild_log_channels_database_operations(self):
         import sqlite3

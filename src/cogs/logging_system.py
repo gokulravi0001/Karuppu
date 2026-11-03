@@ -2,10 +2,11 @@
 Logs Chat (edits/deletions), Voice (joins/leaves/switches), Members (joins/leaves),
 and Moderation Actions (who banned/kicked/timed out whom + reasons) into dedicated channels.
 """
+import time
 import logging
 import asyncio
 from datetime import datetime, timezone, timedelta
-from typing import Optional, Union
+from typing import Optional, Union, List, Any, Dict, Tuple
 import discord
 from discord.ext import commands
 from src.config import bot_config
@@ -23,9 +24,27 @@ DEFAULT_SOUNDBOARD_SOUNDS: dict[int, tuple[str, str]] = {
     6: ("🥁", "Ba-Dum Tss"),
 }
 
+def format_role_list(role_list: List[Any]) -> str:
+    """Formats a list of roles into readable mentions or names."""
+    res = []
+    for r in role_list:
+        if hasattr(r, "mention"):
+            res.append(r.mention)
+        elif hasattr(r, "name"):
+            res.append(f"@{r.name}")
+        elif hasattr(r, "id"):
+            res.append(f"<@&{r.id}>")
+        else:
+            res.append(str(r))
+    return ", ".join(res) if res else "*None*"
+
 class LoggingSystem(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+        # (guild_id, target_id, added_ids_tuple, removed_ids_tuple) -> timestamp
+        self.recent_role_events: Dict[Tuple, float] = {}
+        # (guild_id, user_id, action_type) -> timestamp
+        self.recent_mod_events: Dict[Tuple, float] = {}
 
     def _get_target_channel(self, guild: discord.Guild, category: str) -> Optional[discord.TextChannel]:
         """Resolves the dedicated log channel for a category in a guild."""
@@ -35,6 +54,92 @@ class LoggingSystem(commands.Cog):
             if isinstance(ch, discord.TextChannel):
                 return ch
         return None
+
+    def _prune_recent_caches(self):
+        """Cleans up in-memory dedup caches older than 30s."""
+        now = time.time()
+        for k in list(self.recent_role_events.keys()):
+            if now - self.recent_role_events[k] > 30:
+                del self.recent_role_events[k]
+        for k in list(self.recent_mod_events.keys()):
+            if now - self.recent_mod_events[k] > 30:
+                del self.recent_mod_events[k]
+
+    async def _send_role_change_log(
+        self,
+        channel: discord.TextChannel,
+        target: Union[discord.Member, discord.User],
+        added: List[Any],
+        removed: List[Any],
+        actor: Optional[Union[discord.Member, discord.User]],
+        reason: Optional[str]
+    ):
+        """Dispatches an explicit log showing who gave role to whom, or who removed role from whom."""
+        now_ts = datetime.now(timezone.utc)
+        target_display = target.mention if hasattr(target, "mention") else f"<@{getattr(target, 'id', 'Unknown')}>"
+        target_name = f"{getattr(target, 'name', 'Unknown')}"
+        target_id = getattr(target, 'id', 'Unknown')
+        avatar_url = getattr(target, 'display_avatar', None)
+        avatar_url = avatar_url.url if avatar_url else None
+
+        actor_str = f"{actor.mention} (`{actor.name}` | ID: `{actor.id}`)" if actor else "*Discord System / Integration*"
+
+        # 1. Roles Added Only -> Who Gave Role to Whom
+        if added and not removed:
+            embed = discord.Embed(
+                title="➕ Role Given to Member",
+                color=discord.Color.green(),
+                timestamp=now_ts
+            )
+            embed.description = f"{actor.mention if actor else 'System'} gave role(s) to {target_display}."
+            if avatar_url:
+                embed.set_thumbnail(url=avatar_url)
+            embed.add_field(name="👤 Member (Target)", value=f"{target_display} (`{target_name}` | ID: `{target_id}`)", inline=True)
+            embed.add_field(name="🛠️ Given By (Moderator)", value=actor_str, inline=True)
+            embed.add_field(name="🏷️ Role(s) Added", value=format_role_list(added), inline=False)
+            if reason:
+                embed.add_field(name="📝 Reason", value=f"`{reason}`", inline=False)
+
+        # 2. Roles Removed Only -> Who Removed Role from Whom
+        elif removed and not added:
+            embed = discord.Embed(
+                title="➖ Role Removed from Member",
+                color=discord.Color.red(),
+                timestamp=now_ts
+            )
+            embed.description = f"{actor.mention if actor else 'System'} removed role(s) from {target_display}."
+            if avatar_url:
+                embed.set_thumbnail(url=avatar_url)
+            embed.add_field(name="👤 Member (Target)", value=f"{target_display} (`{target_name}` | ID: `{target_id}`)", inline=True)
+            embed.add_field(name="🛠️ Removed By (Moderator)", value=actor_str, inline=True)
+            embed.add_field(name="🏷️ Role(s) Removed", value=format_role_list(removed), inline=False)
+            if reason:
+                embed.add_field(name="📝 Reason", value=f"`{reason}`", inline=False)
+
+        # 3. Both Roles Added and Removed
+        else:
+            embed = discord.Embed(
+                title="🛡️ Member Roles Updated",
+                color=discord.Color.blue(),
+                timestamp=now_ts
+            )
+            embed.description = f"{actor.mention if actor else 'System'} modified roles for {target_display}."
+            if avatar_url:
+                embed.set_thumbnail(url=avatar_url)
+            embed.add_field(name="👤 Member (Target)", value=f"{target_display} (`{target_name}` | ID: `{target_id}`)", inline=True)
+            embed.add_field(name="🛠️ Modified By (Moderator)", value=actor_str, inline=True)
+            if added:
+                embed.add_field(name="➕ Role(s) Added", value=format_role_list(added), inline=False)
+            if removed:
+                embed.add_field(name="➖ Role(s) Removed", value=format_role_list(removed), inline=False)
+            if reason:
+                embed.add_field(name="📝 Reason", value=f"`{reason}`", inline=False)
+
+        embed.set_footer(text=f"Target ID: {target_id}")
+        try:
+            await channel.send(embed=embed)
+        except Exception as e:
+            logger.debug("Failed sending role change log: %s", e)
 
     # ==========================================
     # 1. CHAT LOGS (Message Edits & Deletions)
@@ -506,9 +611,10 @@ class LoggingSystem(commands.Cog):
             effect.user
         )
 
-        # Prioritize dedicated vc_state log channel; fall back to voice log channel or alert channel
+        # Prioritize dedicated soundboard log channel; fall back to vc_state, voice, or alert channel
         log_channel = (
-            self._get_target_channel(guild, "vc_state")
+            self._get_target_channel(guild, "soundboard")
+            or self._get_target_channel(guild, "vc_state")
             or self._get_target_channel(guild, "voice")
             or self.bot.get_channel(bot_config.get_alert_channel_id(guild.id))
         )
@@ -671,9 +777,10 @@ class LoggingSystem(commands.Cog):
     @commands.Cog.listener()
     async def on_audit_log_entry_create(self, entry: discord.AuditLogEntry):
         guild = entry.guild
-        log_channel = self._get_target_channel(guild, "mod")
-        if not log_channel:
+        if not guild:
             return
+
+        self._prune_recent_caches()
 
         embed = None
         now_utc = datetime.now(timezone.utc)
@@ -693,6 +800,11 @@ class LoggingSystem(commands.Cog):
 
         # BAN
         if entry.action == discord.AuditLogAction.ban:
+            log_channel = self._get_target_channel(guild, "ban") or self._get_target_channel(guild, "mod")
+            if not log_channel:
+                return
+            dedup_key = (guild.id, getattr(target, "id", 0), "ban")
+            self.recent_mod_events[dedup_key] = time.time()
             embed = discord.Embed(
                 title="🔨 Member Banned",
                 color=discord.Color.dark_red(),
@@ -704,6 +816,11 @@ class LoggingSystem(commands.Cog):
 
         # UNBAN
         elif entry.action == discord.AuditLogAction.unban:
+            log_channel = self._get_target_channel(guild, "ban") or self._get_target_channel(guild, "mod")
+            if not log_channel:
+                return
+            dedup_key = (guild.id, getattr(target, "id", 0), "unban")
+            self.recent_mod_events[dedup_key] = time.time()
             embed = discord.Embed(
                 title="🔓 Member Unbanned",
                 color=discord.Color.green(),
@@ -715,6 +832,11 @@ class LoggingSystem(commands.Cog):
 
         # KICK
         elif entry.action == discord.AuditLogAction.kick:
+            log_channel = self._get_target_channel(guild, "kick") or self._get_target_channel(guild, "mod")
+            if not log_channel:
+                return
+            dedup_key = (guild.id, getattr(target, "id", 0), "kick")
+            self.recent_mod_events[dedup_key] = time.time()
             embed = discord.Embed(
                 title="👢 Member Kicked",
                 color=discord.Color.orange(),
@@ -726,6 +848,9 @@ class LoggingSystem(commands.Cog):
 
         # TIMEOUT APPLIED OR REMOVED (member_update)
         elif entry.action == discord.AuditLogAction.member_update:
+            log_channel = self._get_target_channel(guild, "timeout") or self._get_target_channel(guild, "mod")
+            if not log_channel:
+                return
             if hasattr(entry.after, "timed_out_until"):
                 tout_after = entry.after.timed_out_until
                 if tout_after:
@@ -748,9 +873,38 @@ class LoggingSystem(commands.Cog):
                     embed.add_field(name="Moderator", value=f"{mod_user.mention if mod_user else 'Unknown'}", inline=True)
                     embed.add_field(name="Reason", value=reason, inline=False)
 
+        # WHO GAVE ROLE TO WHOM / WHO REMOVED ROLE TO WHOM (member_role_update)
+        elif entry.action == discord.AuditLogAction.member_role_update:
+            role_log = self._get_target_channel(guild, "role") or self._get_target_channel(guild, "server") or self._get_target_channel(guild, "mod")
+            if not role_log:
+                return
+
+            roles_added = []
+            roles_removed = []
+            if hasattr(entry, "changes") and entry.changes:
+                after_obj = getattr(entry.changes, "after", None)
+                before_obj = getattr(entry.changes, "before", None)
+                if after_obj and hasattr(after_obj, "roles"):
+                    roles_added = getattr(after_obj, "roles", []) or []
+                if before_obj and hasattr(before_obj, "roles"):
+                    roles_removed = getattr(before_obj, "roles", []) or []
+
+            tid = getattr(target, "id", getattr(entry, "_target_id", 0))
+            dedup_key = (
+                guild.id,
+                tid,
+                tuple(sorted(getattr(r, "id", 0) for r in roles_added)),
+                tuple(sorted(getattr(r, "id", 0) for r in roles_removed))
+            )
+            self.recent_role_events[dedup_key] = time.time()
+            await self._send_role_change_log(role_log, target, roles_added, roles_removed, mod_user, entry.reason)
+            return
+
         # SERVER / CHANNEL / ROLE UPDATES (Server settings logs)
         elif entry.action in (discord.AuditLogAction.channel_create, discord.AuditLogAction.channel_delete):
-            server_log = self._get_target_channel(guild, "server") or log_channel
+            server_log = self._get_target_channel(guild, "channel") or self._get_target_channel(guild, "server") or self._get_target_channel(guild, "mod")
+            if not server_log:
+                return
             is_create = entry.action == discord.AuditLogAction.channel_create
             embed = discord.Embed(
                 title=f"{'📁 Channel Created' if is_create else '🗑️ Channel Deleted'}",
@@ -762,7 +916,9 @@ class LoggingSystem(commands.Cog):
             log_channel = server_log
 
         elif entry.action in (discord.AuditLogAction.role_create, discord.AuditLogAction.role_delete):
-            server_log = self._get_target_channel(guild, "server") or log_channel
+            server_log = self._get_target_channel(guild, "role") or self._get_target_channel(guild, "server") or self._get_target_channel(guild, "mod")
+            if not server_log:
+                return
             is_create = entry.action == discord.AuditLogAction.role_create
             embed = discord.Embed(
                 title=f"{'🛡️ Role Created' if is_create else '🗑️ Role Deleted'}",
@@ -772,6 +928,21 @@ class LoggingSystem(commands.Cog):
             embed.add_field(name="Role Name", value=f"`{target_display}`", inline=True)
             embed.add_field(name="Moderator", value=f"{mod_user.mention if mod_user else 'Unknown'}", inline=True)
             log_channel = server_log
+
+        # BOT ADD / WEBHOOK INTEGRATIONS
+        elif entry.action in (discord.AuditLogAction.bot_add, discord.AuditLogAction.webhook_create, discord.AuditLogAction.webhook_delete):
+            rel_log = self._get_target_channel(guild, "relationship") or self._get_target_channel(guild, "admin") or self._get_target_channel(guild, "server")
+            if not rel_log:
+                return
+            action_name = "Bot Added" if entry.action == discord.AuditLogAction.bot_add else ("Webhook Created" if entry.action == discord.AuditLogAction.webhook_create else "Webhook Deleted")
+            embed = discord.Embed(
+                title=f"🔗 Integration: {action_name}",
+                color=discord.Color.teal(),
+                timestamp=now_utc
+            )
+            embed.add_field(name="Target", value=f"**{target_display}** (`{target_id_str}`)", inline=True)
+            embed.add_field(name="Actor", value=f"{mod_user.mention if mod_user else 'Unknown'}", inline=True)
+            log_channel = rel_log
 
         if embed and log_channel:
             try:
@@ -784,6 +955,10 @@ class LoggingSystem(commands.Cog):
     # ==========================================
     @commands.Cog.listener()
     async def on_member_ban(self, guild: discord.Guild, user: Union[discord.User, discord.Member]):
+        dedup_key = (guild.id, user.id, "ban")
+        if dedup_key in self.recent_mod_events and (time.time() - self.recent_mod_events[dedup_key]) < 8:
+            return
+
         log_channel = self._get_target_channel(guild, "ban") or self._get_target_channel(guild, "mod")
         if not log_channel:
             return
@@ -802,6 +977,10 @@ class LoggingSystem(commands.Cog):
 
     @commands.Cog.listener()
     async def on_member_unban(self, guild: discord.Guild, user: discord.User):
+        dedup_key = (guild.id, user.id, "unban")
+        if dedup_key in self.recent_mod_events and (time.time() - self.recent_mod_events[dedup_key]) < 8:
+            return
+
         log_channel = self._get_target_channel(guild, "ban") or self._get_target_channel(guild, "mod")
         if not log_channel:
             return
@@ -1008,31 +1187,39 @@ class LoggingSystem(commands.Cog):
                 except Exception:
                     pass
 
-        # 2. Roles changed -> role log
+        # 2. Roles changed -> role log (Who gave role to whom / Who removed role from whom)
         if before.roles != after.roles:
-            role_ch = self._get_target_channel(guild, "role") or self._get_target_channel(guild, "server")
-            if role_ch:
-                added = [r for r in after.roles if r not in before.roles]
-                removed = [r for r in before.roles if r not in after.roles]
-                changes = []
-                if added:
-                    changes.append(f"➕ **Added:** {', '.join([r.mention for r in added])}")
-                if removed:
-                    changes.append(f"➖ **Removed:** {', '.join([r.mention for r in removed])}")
-
-                if changes:
-                    embed = discord.Embed(
-                        title="🛡️ Member Roles Updated",
-                        color=discord.Color.blue(),
-                        description="\n".join(changes),
-                        timestamp=datetime.now(timezone.utc)
+            added = [r for r in after.roles if r not in before.roles]
+            removed = [r for r in before.roles if r not in after.roles]
+            if added or removed:
+                role_ch = self._get_target_channel(guild, "role") or self._get_target_channel(guild, "server") or self._get_target_channel(guild, "mod")
+                if role_ch:
+                    dedup_key = (
+                        guild.id,
+                        after.id,
+                        tuple(sorted(r.id for r in added)),
+                        tuple(sorted(r.id for r in removed))
                     )
-                    embed.set_author(name=str(after), icon_url=after.display_avatar.url)
-                    embed.add_field(name="Member", value=after.mention, inline=False)
-                    try:
-                        await role_ch.send(embed=embed)
-                    except Exception:
-                        pass
+                    now_sec = time.time()
+                    if dedup_key not in self.recent_role_events or (now_sec - self.recent_role_events[dedup_key]) >= 8:
+                        # Slight delay so audit log is written
+                        await asyncio.sleep(0.6)
+                        if dedup_key not in self.recent_role_events or (time.time() - self.recent_role_events[dedup_key]) >= 8:
+                            mod_user = None
+                            audit_reason = None
+                            if guild.me.guild_permissions.view_audit_log:
+                                try:
+                                    async for entry in guild.audit_logs(limit=4, action=discord.AuditLogAction.member_role_update):
+                                        if entry.target and entry.target.id == after.id:
+                                            if abs((datetime.now(timezone.utc) - entry.created_at).total_seconds()) < 10:
+                                                mod_user = entry.user
+                                                audit_reason = entry.reason
+                                                break
+                                except Exception as e:
+                                    logger.debug("Failed querying audit log for member_role_update: %s", e)
+
+                            self.recent_role_events[dedup_key] = time.time()
+                            await self._send_role_change_log(role_ch, after, added, removed, mod_user, audit_reason)
 
         # 3. Server Boosted -> boost log
         if before.premium_since != after.premium_since and after.premium_since:

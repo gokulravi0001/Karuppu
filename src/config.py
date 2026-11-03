@@ -64,7 +64,7 @@ class BotConfig:
         self.alert_channel_id = int(os.getenv("ALERT_CHANNEL_ID", "0"))
         self.guild_id = int(os.getenv("GUILD_ID", "0")) if os.getenv("GUILD_ID") else None
         self.owner_id = int(os.getenv("OWNER_ID", "0")) if os.getenv("OWNER_ID") else None
-        self.health_port = int(os.getenv("HEALTH_PORT", "8080"))
+        self.health_port = int(os.getenv("PORT") or os.getenv("HEALTH_PORT", "8080"))
 
     # General settings
     @property

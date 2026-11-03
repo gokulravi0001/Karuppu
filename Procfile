@@ -1,1 +1,1 @@
-worker: python -m src.bot
+web: python main.py

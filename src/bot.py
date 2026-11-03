@@ -7,6 +7,7 @@ import asyncio
 import logging
 from typing import Optional
 from datetime import datetime, timezone
+import aiohttp
 from aiohttp import web
 import discord
 from discord.ext import commands, tasks
@@ -169,11 +170,13 @@ class SecurityBot(commands.Bot):
             except Exception as e:
                 logger.error("Failed to load extension %s: %s", ext, e)
 
-        # 4. Start health check server
-        await self._start_healthcheck_server()
+        # 4. Start health check server if not already running
+        if self.health_runner is None:
+            await self._start_healthcheck_server()
 
         # 5. Start 24/7 Keep-Alive self-pinger task
-        self.keep_alive_task = asyncio.create_task(self._keep_alive_loop())
+        if self.keep_alive_task is None or self.keep_alive_task.done():
+            self.keep_alive_task = asyncio.create_task(self._keep_alive_loop())
 
         # 6. Start maintenance loop and VC punishment expiry monitor
         self.maintenance_task.start()
@@ -326,21 +329,42 @@ class SecurityBot(commands.Bot):
             self.keep_alive_task.cancel()
         if self.health_runner:
             await self.health_runner.cleanup()
+            self.health_runner = None
         await super().close()
 
-def main():
+async def run_bot():
     token = bot_config.discord_token
     if not token or token == "your_bot_token_here":
-        logger.critical("No valid DISCORD_TOKEN found in .env. Please configure your bot token!")
-        print("\n[ERROR] DISCORD_TOKEN is missing! Please configure .env before starting the bot.\n")
+        logger.critical("No valid DISCORD_TOKEN found in environment. Please configure your bot token!")
+        print("\n[ERROR] DISCORD_TOKEN is missing! Please configure DISCORD_TOKEN before starting the bot.\n")
         sys.exit(1)
 
     bot = SecurityBot()
+    # 1. Immediately start the health check web server so Render's probe passes right away
+    await bot._start_healthcheck_server()
+
+    # 2. Resilient Gateway connection loop
+    backoff = 20
+    while not bot.is_closed():
+        try:
+            logger.info("Connecting to Discord Gateway...")
+            await bot.start(token)
+            break
+        except discord.LoginFailure as lf:
+            logger.critical("Fatal: Invalid Discord token provided: %s", lf)
+            sys.exit(1)
+        except (discord.HTTPException, aiohttp.ClientError) as e:
+            logger.warning("Discord API connection notice (%s). Waiting %ds before reconnecting...", e, backoff)
+            await asyncio.sleep(backoff)
+            backoff = min(backoff * 2, 180)
+        except Exception as e:
+            logger.error("Unexpected error in Discord bot lifecycle: %s. Retrying in %ds...", e, backoff)
+            await asyncio.sleep(backoff)
+            backoff = min(backoff * 2, 180)
+
+def main():
     try:
-        bot.run(token, log_handler=None)
-    except discord.LoginFailure:
-        logger.critical("Invalid Discord token provided.")
-        sys.exit(1)
+        asyncio.run(run_bot())
     except KeyboardInterrupt:
         logger.info("Bot stopped by user.")
 

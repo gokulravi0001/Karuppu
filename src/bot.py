@@ -5,6 +5,8 @@ import os
 import sys
 import asyncio
 import logging
+from typing import Optional
+from datetime import datetime, timezone
 from aiohttp import web
 import discord
 from discord.ext import commands, tasks
@@ -40,13 +42,15 @@ class SecurityBot(commands.Bot):
         )
         self.health_app: web.Application = web.Application()
         self.health_runner: web.AppRunner = None
+        self.keep_alive_task: Optional[asyncio.Task] = None
 
     async def _health_handler(self, request: web.Request) -> web.Response:
-        """Endpoint for Docker container health check probes."""
+        """Endpoint for Render container health check probes & keep-alive monitors."""
         is_ready = self.is_ready()
         status_code = 200 if is_ready else 503
         data = {
             "status": "healthy" if is_ready else "starting",
+            "bot": "Karuppu Security Bot",
             "latency_ms": round(self.latency * 1000) if is_ready else None,
             "guilds": len(self.guilds) if is_ready else 0,
             "dry_run": bot_config.dry_run
@@ -55,13 +59,37 @@ class SecurityBot(commands.Bot):
 
     async def _start_healthcheck_server(self):
         """Starts the aiohttp server on HEALTH_PORT for container probes & web dashboard."""
+        self.health_app.router.add_get("/", self._health_handler)
+        self.health_app.router.add_head("/", self._health_handler)
         self.health_app.router.add_get("/health", self._health_handler)
+        self.health_app.router.add_head("/health", self._health_handler)
         setup_dashboard_routes(self.health_app, self)
         self.health_runner = web.AppRunner(self.health_app)
         await self.health_runner.setup()
         site = web.TCPSite(self.health_runner, "0.0.0.0", bot_config.health_port)
         await site.start()
         logger.info("Web dashboard & health server listening on port %d", bot_config.health_port)
+
+    async def _keep_alive_loop(self):
+        """Continuously pings public URL every 8 minutes to prevent Render free tier from sleeping."""
+        await self.wait_until_ready()
+        external_url = os.getenv("RENDER_EXTERNAL_URL") or "https://karuppu-security-bot.onrender.com"
+        target_url = f"{external_url.rstrip('/')}/health"
+        logger.info("24/7 Keep-Alive pinger started for target: %s", target_url)
+
+        # Wait 30 seconds before first ping
+        await asyncio.sleep(30)
+        while not self.is_closed():
+            try:
+                import aiohttp
+                async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15)) as session:
+                    async with session.get(target_url, headers={"User-Agent": "KaruppuKeepAlive/1.0"}) as resp:
+                        logger.info("24/7 Keep-Alive ping to %s returned HTTP %d", target_url, resp.status)
+            except Exception as e:
+                logger.debug("Keep-Alive ping notice: %s", e)
+
+            # Wait 8 minutes (480s) before next ping (Render sleep threshold is 15 minutes)
+            await asyncio.sleep(480)
 
     async def setup_hook(self):
         """Executes initialization steps before gateway login."""
@@ -148,7 +176,10 @@ class SecurityBot(commands.Bot):
         # 4. Start health check server
         await self._start_healthcheck_server()
 
-        # 5. Start maintenance loop and VC punishment expiry monitor
+        # 5. Start 24/7 Keep-Alive self-pinger task
+        self.keep_alive_task = asyncio.create_task(self._keep_alive_loop())
+
+        # 6. Start maintenance loop and VC punishment expiry monitor
         self.maintenance_task.start()
         self.vc_punishment_expiry_task.start()
 
@@ -295,6 +326,8 @@ class SecurityBot(commands.Bot):
 
     async def close(self):
         """Graceful shutdown handler."""
+        if self.keep_alive_task and not self.keep_alive_task.done():
+            self.keep_alive_task.cancel()
         if self.health_runner:
             await self.health_runner.cleanup()
         await super().close()

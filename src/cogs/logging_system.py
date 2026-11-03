@@ -47,12 +47,79 @@ class LoggingSystem(commands.Cog):
         self.recent_mod_events: Dict[Tuple, float] = {}
 
     def _get_target_channel(self, guild: discord.Guild, category: str) -> Optional[discord.TextChannel]:
-        """Resolves the dedicated log channel for a category in a guild."""
-        ch_id = bot_config.get_log_channel_id(guild.id, category)
+        """Resolves the dedicated log channel for a category in a guild with automatic fallback & auto-discovery."""
+        if not guild:
+            return None
+
+        cat_key = category.strip().lower()
+
+        # 1. Exact match in granular cache / database
+        ch_id = bot_config.get_log_channel_id(guild.id, cat_key)
         if ch_id:
             ch = guild.get_channel(ch_id)
             if isinstance(ch, discord.TextChannel):
                 return ch
+
+        # 2. Dynamic Auto-Discovery: Search guild text channels for existing log channels
+        formatted_key = cat_key.replace("_", "-")
+        candidate = None
+
+        # Pass 1: Look inside dedicated log categories first
+        for cat in guild.categories:
+            cat_name = cat.name.lower()
+            if "log" in cat_name or "𝚲" in cat.name or "security" in cat_name:
+                for ch in cat.text_channels:
+                    cname = ch.name.lower()
+                    if formatted_key in cname or cat_key in cname:
+                        candidate = ch
+                        break
+            if candidate:
+                break
+
+        # Pass 2: Fallback across any text channel in guild
+        if not candidate:
+            for ch in guild.text_channels:
+                cname = ch.name.lower()
+                if cname.endswith(f"-{formatted_key}") or cname.endswith(f"-{cat_key}") or f"-{formatted_key}-" in cname or cname == formatted_key or cname == cat_key:
+                    candidate = ch
+                    break
+
+        # Pass 3: Smart structural fallback chains
+        if not candidate:
+            fallbacks = {
+                "antinuke": ["security", "mod"],
+                "message": ["chat", "mod"],
+                "chat": ["message"],
+                "mod": ["security", "server"],
+                "kick": ["mod", "server"],
+                "ban": ["mod", "server"],
+                "timeout": ["mod", "server"],
+                "voice": ["mod", "server"],
+                "vc_state": ["voice", "mod"],
+                "channel": ["server", "mod"],
+                "server": ["mod"],
+                "member": ["server", "mod"],
+                "role": ["server", "mod"],
+                "joins": ["member", "server"],
+                "leaves": ["member", "server"],
+                "stage": ["channel", "voice"],
+                "event": ["channel", "server"],
+                "announcement": ["channel", "server"],
+                "emoji": ["channel", "server"],
+                "security": ["mod", "server"],
+            }
+            for fb_cat in fallbacks.get(cat_key, []):
+                fb_id = bot_config.get_log_channel_id(guild.id, fb_cat)
+                if fb_id:
+                    fb_ch = guild.get_channel(fb_id)
+                    if isinstance(fb_ch, discord.TextChannel):
+                        candidate = fb_ch
+                        break
+
+        if candidate:
+            bot_config.guild_log_channels_cache[(guild.id, cat_key)] = candidate.id
+            return candidate
+
         return None
 
     def _prune_recent_caches(self):

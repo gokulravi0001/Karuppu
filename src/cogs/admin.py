@@ -1206,7 +1206,13 @@ class SecurityAdmin(commands.GroupCog, name="security"):
 
         try:
             # Check if category already exists; if not, create it
-            category = discord.utils.find(lambda c: c.name.lower() == category_name.lower(), guild.categories)
+            category = None
+            for cat in guild.categories:
+                cname = cat.name.lower()
+                if cname == category_name.lower() or (clean_prefix.lower() in cname and "log" in cname):
+                    category = cat
+                    break
+
             if category:
                 try:
                     await category.edit(overwrites=overwrites)
@@ -1215,26 +1221,45 @@ class SecurityAdmin(commands.GroupCog, name="security"):
             else:
                 category = await guild.create_category(category_name, overwrites=overwrites, reason="Automated 32-channel logging suite setup")
 
-            existing_channels = {ch.name.lower(): ch for ch in category.text_channels}
             created_channels = {}
             db_map = {}
+            cat_channels = list(category.text_channels)
 
             for ch_key, ch_topic in self.FULL_LOG_CHANNELS:
                 formatted_key = ch_key.replace('_', '-')
                 ch_name = f". {clean_prefix} · {formatted_key} ."
-                ch = existing_channels.get(ch_name.lower())
+
+                # Smart match against existing channels inside the category
+                ch = None
+                for existing_ch in cat_channels:
+                    cname = existing_ch.name.lower()
+                    if formatted_key in cname or ch_key in cname:
+                        ch = existing_ch
+                        break
+
                 if not ch:
-                    ch = await guild.create_text_channel(
-                        ch_name,
-                        category=category,
-                        topic=ch_topic,
-                        reason=f"Automated logging suite setup ({ch_key})"
-                    )
-                    # Brief pause between creates to avoid hitting Discord channel rate limits
-                    await asyncio.sleep(0.35)
-                created_channels[ch_key] = ch
-                db_map[ch_key] = ch.id
-                bot_config.guild_log_channels_cache[(guild.id, ch_key)] = ch.id
+                    try:
+                        ch = await guild.create_text_channel(
+                            ch_name,
+                            category=category,
+                            topic=ch_topic,
+                            reason=f"Automated logging suite setup ({ch_key})"
+                        )
+                        # Brief pause between creates to avoid hitting Discord channel rate limits
+                        await asyncio.sleep(0.35)
+                    except Exception as create_err:
+                        logger.warning("Could not create channel %s: %s", ch_name, create_err)
+                else:
+                    if not ch.topic or ch.topic != ch_topic:
+                        try:
+                            await ch.edit(topic=ch_topic)
+                        except Exception:
+                            pass
+
+                if ch:
+                    created_channels[ch_key] = ch
+                    db_map[ch_key] = ch.id
+                    bot_config.guild_log_channels_cache[(guild.id, ch_key)] = ch.id
 
             # Bulk persist to database
             await db.bulk_set_log_channels(guild.id, db_map)
@@ -1307,8 +1332,14 @@ class SecurityAdmin(commands.GroupCog, name="security"):
     @commands.has_permissions(administrator=True)
     async def msg_cmd_logs(self, ctx: commands.Context, prefix: str = "𝚲"):
         """Prefix command (!logs or !setup) to create all 32 logging channels in a single command."""
-        if not (ctx.author.guild_permissions.administrator or ctx.author.id == ctx.guild.owner_id):
-            await ctx.reply("❌ Administrator permissions required to set up logs.")
+        is_allowed = (
+            ctx.author.id == ctx.guild.owner_id or
+            ctx.author.guild_permissions.administrator or
+            ctx.author.guild_permissions.manage_guild or
+            ctx.author.guild_permissions.moderate_members
+        )
+        if not is_allowed:
+            await ctx.reply("❌ Administrator or Moderator permissions required to set up logs.")
             return
 
         status_msg = await ctx.reply("⚙️ **Creating private log category and all 32 dedicated log channels... Please wait a few seconds!**")

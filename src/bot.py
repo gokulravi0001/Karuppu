@@ -25,14 +25,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger("security_bot.core")
 
-# Least-Privilege Gateway Intents
-intents = discord.Intents.none()
-intents.guilds = True           # Required to observe channels and roles
+# Comprehensive Gateway Intents for Full Security & Audit Logging
+intents = discord.Intents.default()
 intents.members = True          # Required for join raid detection and account age audits
-intents.messages = True         # Required for message scanning
 intents.message_content = True  # Required for link scanning and spam heuristics
-intents.voice_states = True     # Required for voice channel monitoring and mic gating
-intents.moderation = True       # Required for audit logs (bans, kicks, timeouts)
 
 class SecurityBot(commands.Bot):
     def __init__(self):
@@ -265,7 +261,27 @@ class SecurityBot(commands.Bot):
         # Use '!sync' in chat to refresh commands on-demand.
         logger.info("Bot connected to Gateway. Slash commands are registered globally (use '!sync' to force refresh).")
 
-        # 3. Auto-reconnect 24/7 Voice Guard to designated channels
+        # 3. Auto-discover and bind existing log channels for all guilds
+        from src.cogs.admin import FULL_LOG_CHANNELS
+        for guild in self.guilds:
+            try:
+                discovered = 0
+                for cat in guild.categories:
+                    cat_lower = cat.name.lower()
+                    if "log" in cat_lower or "𝚲" in cat.name or "security" in cat_lower:
+                        for ch in cat.text_channels:
+                            cname = ch.name.lower()
+                            for ch_key, _ in FULL_LOG_CHANNELS:
+                                formatted_key = ch_key.replace("_", "-")
+                                if (formatted_key in cname or ch_key in cname) and (guild.id, ch_key) not in bot_config.guild_log_channels_cache:
+                                    bot_config.guild_log_channels_cache[(guild.id, ch_key)] = ch.id
+                                    discovered += 1
+                if discovered > 0:
+                    logger.info("Auto-discovered %d existing log channels in guild '%s' (%d)", discovered, guild.name, guild.id)
+            except Exception as disc_err:
+                logger.debug("Error during auto-discovery for %s: %s", guild.name, disc_err)
+
+        # 4. Auto-reconnect 24/7 Voice Guard to designated channels
         for guild in self.guilds:
             settings = bot_config.guild_settings_cache.get(guild.id, {})
             guard_ch_id = settings.get("guard_voice_channel_id")

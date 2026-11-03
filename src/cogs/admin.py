@@ -1168,46 +1168,6 @@ class SecurityAdmin(commands.GroupCog, name="security"):
         embed.set_footer(text=f"Configured by {interaction.user}")
         await interaction.response.send_message(embed=embed)
 
-    @app_commands.command(
-        name="logs",
-        description="[Admins Only] 1-Click setup of the full 28-channel logging suite with 𝚲."
-    )
-    @app_commands.describe(
-        prefix="Tag prefix for channel names (default: '𝚲')",
-        allowed_role="Optional: Extra staff/moderator role allowed to see these private log channels"
-    )
-    async def cmd_logs(
-        self,
-        interaction: discord.Interaction,
-        prefix: Optional[str] = "𝚲",
-        allowed_role: Optional[discord.Role] = None
-    ):
-        await self.cmd_setup_full_suite(interaction, prefix=prefix, allowed_role=allowed_role)
-
-    @app_commands.command(
-        name="setup_full_suite",
-        description="[Admins Only] 1-Click setup of the full 28-channel logging suite styled with 𝚲."
-    )
-    @app_commands.describe(
-        prefix="Tag prefix for channel names (default: '𝚲')",
-        allowed_role="Optional: Extra staff/moderator role allowed to see these private log channels"
-    )
-    async def cmd_setup_full_suite(
-        self,
-        interaction: discord.Interaction,
-        prefix: Optional[str] = "𝚲",
-        allowed_role: Optional[discord.Role] = None
-    ):
-        if not self._check_mod(interaction):
-            await interaction.response.send_message("❌ Moderator permissions required.", ephemeral=True)
-            return
-
-        guild = interaction.guild
-        me = guild.me
-        if not me.guild_permissions.manage_channels:
-            await interaction.response.send_message("❌ Bot lacks the **'Manage Channels'** permission to create channels.", ephemeral=True)
-            return
-
     async def _execute_setup_full_suite(
         self,
         guild: discord.Guild,
@@ -1372,17 +1332,23 @@ class SecurityAdmin(commands.GroupCog, name="security"):
         allowed_role: Optional[discord.Role] = None
     ):
         """Creates private category and all dedicated log channels matching user's requested suite."""
+        # Defer immediately so Discord never times out
+        await interaction.response.defer(ephemeral=True)
+
         if not self._check_mod(interaction):
-            await interaction.response.send_message("❌ Moderator permissions required.", ephemeral=True)
+            await interaction.followup.send("❌ Moderator permissions required.", ephemeral=True)
             return
 
         guild = interaction.guild
-        me = guild.me
-        if not me.guild_permissions.manage_channels:
-            await interaction.response.send_message("❌ Bot lacks the **'Manage Channels'** permission to create channels.", ephemeral=True)
+        if not guild:
+            await interaction.followup.send("❌ This command can only be used in a server.", ephemeral=True)
             return
 
-        await interaction.response.defer(ephemeral=True)
+        me = guild.me
+        if not me.guild_permissions.manage_channels:
+            await interaction.followup.send("❌ Bot lacks the **'Manage Channels'** permission to create channels.", ephemeral=True)
+            return
+
         success, err, category, count, embed = await self._execute_setup_full_suite(guild, prefix=prefix, allowed_role=allowed_role)
         if success and embed:
             await interaction.followup.send(embed=embed, ephemeral=True)

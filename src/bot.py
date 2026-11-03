@@ -179,7 +179,21 @@ class SecurityBot(commands.Bot):
         if self.keep_alive_task is None or self.keep_alive_task.done():
             self.keep_alive_task = asyncio.create_task(self._keep_alive_loop())
 
-        # 6. Start maintenance loop and VC punishment expiry monitor
+        # 6. Global Slash Command Error Handler
+        async def on_tree_error(interaction: discord.Interaction, error: discord.app_commands.AppCommandError):
+            logger.error("Slash command error in '%s': %s", interaction.command.name if interaction.command else "Unknown", error, exc_info=error)
+            try:
+                err_text = f"❌ Command error: `{error}`"
+                if interaction.response.is_done():
+                    await interaction.followup.send(err_text, ephemeral=True)
+                else:
+                    await interaction.response.send_message(err_text, ephemeral=True)
+            except Exception as notify_err:
+                logger.error("Failed to notify user of command error: %s", notify_err)
+
+        self.tree.on_error = on_tree_error
+
+        # 7. Start maintenance loop and VC punishment expiry monitor
         self.maintenance_task.start()
         self.vc_punishment_expiry_task.start()
 
@@ -283,24 +297,24 @@ class SecurityBot(commands.Bot):
                 await message.channel.send("❌ Only the **Server Owner** or members with **Administrator** permission can run this command.")
                 return
 
-            status_msg = await message.channel.send("🧹 **Cleaning up duplicate commands and refreshing global commands...**")
+            status_msg = await message.channel.send("🔄 **Syncing slash commands to this server...**")
             try:
-                # 1. Wipe guild-scoped duplicates from this specific server
-                self.tree.clear_commands(guild=message.guild)
-                await self.tree.sync(guild=message.guild)
+                # 1. Copy global commands to this guild and sync so they become available INSTANTLY
+                self.tree.copy_global_to(guild=message.guild)
+                synced_guild = await self.tree.sync(guild=message.guild)
 
-                # 2. Ensure global commands are synced
+                # 2. Also ensure global commands are synced
                 synced = await self.tree.sync()
                 await status_msg.edit(
                     content=(
-                        f"✅ **Duplicate commands deleted successfully!**\n"
-                        f"Removed the guild-scoped copies and preserved the single clean set of **{len(synced)}** global commands.\n\n"
-                        f"🔄 **To see the clean list right away**:\n"
-                        f"Press **`Ctrl + R`** on PC (or completely close and re-open the Discord mobile app) so your Discord client clears its cached command list!"
+                        f"✅ **Synced {len(synced_guild)} slash commands instantly to this server!**\n"
+                        f"Global registry has **{len(synced)}** commands registered.\n\n"
+                        f"👉 You can use `/logs` or `/setup` right away!\n"
+                        f"*(Or type `!logs` or `!setup` in chat directly anytime!)*"
                     )
                 )
             except Exception as e:
-                await status_msg.edit(content=f"❌ Failed to clear duplicate commands: `{e}`")
+                await status_msg.edit(content=f"❌ Failed to sync commands: `{e}`")
             return
 
         # Process any other standard prefix commands

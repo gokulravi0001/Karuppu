@@ -215,7 +215,11 @@ class BotConfig:
             "leaves": ["member"],
             "presence": ["member", "vc_state"],
             "automod": ["security", "message", "chat"],
-            "relationship": ["server", "admin"]
+            "relationship": ["server", "admin"],
+            "stage": ["channel", "voice", "server"],
+            "event": ["server", "channel"],
+            "announcement": ["channel", "message", "chat"],
+            "emoji": ["server"]
         }
 
         for fallback_cat in fallbacks.get(cat_key, []):

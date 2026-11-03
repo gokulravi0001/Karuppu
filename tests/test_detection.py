@@ -485,18 +485,18 @@ class TestFullSuiteLoggingResolution(unittest.TestCase):
                 del bot_config.guild_log_channels_cache[k]
         bot_config.guild_settings_cache.pop(guild_id, None)
 
-        # 1. Exact resolution test when full suite is configured (all 28 action channels)
-        all_28_channels = [
-            "antinuke", "message", "mod", "kick", "timeout", "verify", "whitelist", "security",
-            "server", "role", "file", "voice", "soundboard", "vc_state", "member", "channel",
-            "invite", "ticket", "admin", "boost", "raid", "misuse",
-            "ban", "joins", "leaves", "presence", "automod", "relationship"
+        # 1. Exact resolution test when full suite is configured (all 32 action channels)
+        all_32_channels = [
+            "antinuke", "message", "mod", "kick", "ban", "timeout", "voice", "vc_state",
+            "soundboard", "stage", "event", "announcement", "role", "channel", "server", "member",
+            "joins", "leaves", "emoji", "verify", "whitelist", "security", "file", "invite",
+            "ticket", "admin", "boost", "raid", "misuse", "presence", "automod", "relationship"
         ]
         dummy_base_id = 100000000
-        for i, ch_key in enumerate(all_28_channels):
+        for i, ch_key in enumerate(all_32_channels):
             bot_config.guild_log_channels_cache[(guild_id, ch_key)] = dummy_base_id + i
 
-        for i, ch_key in enumerate(all_28_channels):
+        for i, ch_key in enumerate(all_32_channels):
             res_id = bot_config.get_log_channel_id(guild_id, ch_key)
             self.assertEqual(res_id, dummy_base_id + i, f"Failed exact resolution for {ch_key}")
 
@@ -512,6 +512,7 @@ class TestFullSuiteLoggingResolution(unittest.TestCase):
         bot_config.guild_log_channels_cache[(guild_id, "server")] = 7704
         bot_config.guild_log_channels_cache[(guild_id, "chat")] = 7705
         bot_config.guild_log_channels_cache[(guild_id, "voice")] = 7706
+        bot_config.guild_log_channels_cache[(guild_id, "channel")] = 7707
 
         # Check fallbacks
         self.assertEqual(bot_config.get_log_channel_id(guild_id, "antinuke"), 7701) # antinuke -> security
@@ -523,7 +524,10 @@ class TestFullSuiteLoggingResolution(unittest.TestCase):
         self.assertEqual(bot_config.get_log_channel_id(guild_id, "joins"), 7703)    # joins -> member
         self.assertEqual(bot_config.get_log_channel_id(guild_id, "leaves"), 7703)   # leaves -> member
         self.assertEqual(bot_config.get_log_channel_id(guild_id, "role"), 7704)     # role -> server
-        self.assertEqual(bot_config.get_log_channel_id(guild_id, "channel"), 7704)  # channel -> server
+        self.assertEqual(bot_config.get_log_channel_id(guild_id, "emoji"), 7704)    # emoji -> server
+        self.assertEqual(bot_config.get_log_channel_id(guild_id, "event"), 7704)    # event -> server
+        self.assertEqual(bot_config.get_log_channel_id(guild_id, "stage"), 7707)    # stage -> channel
+        self.assertEqual(bot_config.get_log_channel_id(guild_id, "announcement"), 7707) # announcement -> channel
         self.assertEqual(bot_config.get_log_channel_id(guild_id, "message"), 7705)  # message -> chat
         self.assertEqual(bot_config.get_log_channel_id(guild_id, "soundboard"), 7706) # soundboard -> vc_state -> voice
         self.assertEqual(bot_config.get_log_channel_id(guild_id, "vc_state"), 7706)   # vc_state -> voice

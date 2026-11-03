@@ -65,28 +65,32 @@ FULL_LOG_CHANNELS = [
     ("message", "Message edits & deletions with attachment names and before/after comparisons"),
     ("mod", "General moderation actions, warnings and staff notes"),
     ("kick", "Member kick logs: who kicked whom with reasons and roles held"),
+    ("ban", "Server bans, unbans, voice channel bans and voice unbans"),
     ("timeout", "Member timeout & untimeout logs: who timed out whom with durations and reasons"),
+    ("voice", "Voice moderation: joins, leaves, moves, server mute/unmute and server deafen/undeafen"),
+    ("vc_state", "Detailed member VC states: self-mute, self-deafen, webcam camera and screen share"),
+    ("soundboard", "Soundboard audio playback logs: audio name, sound ID and volume"),
+    ("stage", "Stage channel & stage instance events: speaker requests, topics, stage open/close"),
+    ("event", "Scheduled server events: creations, updates, cancellations, start & end"),
+    ("announcement", "Announcement & news channel publishes, crossposts and channel changes"),
+    ("role", "Role creations, deletions, edits/renames, and who gave or removed roles to/from members"),
+    ("channel", "Channel creations, deletions, renames, topic edits, slowmode and permission overwrites"),
+    ("server", "Server modifications: name, icon, banner, vanity URL, AFK and settings"),
+    ("member", "Member profile updates: nickname changes, avatars and moderation status"),
+    ("joins", "Member joins with exact account age and <24h new account security flags"),
+    ("leaves", "Member leaves with duration spent in server and roles held"),
+    ("emoji", "Server emojis & stickers: creations, renames, deletions"),
     ("verify", "Verification events & level reward role unlocks"),
     ("whitelist", "Owner-authorized bypass and whitelist additions / removals"),
     ("security", "Security alerts, mode toggles, quarantine actions and Voice Guard status"),
-    ("server", "Server modifications: name, icon, banner, vanity URL, AFK and settings"),
-    ("role", "Role creations, deletions, edits, and who gave or removed roles to/from members"),
     ("file", "Scanned uploads, malicious attachments blocked and archive gates"),
-    ("voice", "Voice moderation: who moved/server-muted/disconnected whom, and VC connections"),
-    ("soundboard", "Soundboard audio playback logs: audio name, sound ID and volume"),
-    ("vc_state", "Detailed member VC states: self-mute, self-deafen, webcam camera and screen share"),
-    ("member", "Member profile updates: nickname changes, avatars and moderation status"),
-    ("channel", "Channel creations, deletions, topic edits, slowmode and permission overwrites"),
     ("invite", "Invite creations, deletions, vanity links and invite link tracking"),
     ("ticket", "Ticket support logs: ticket creations, closures and staff assignments"),
     ("admin", "Administrative operations, security bot setup and lockdown executions"),
     ("boost", "Server boost events, booster milestones and server boost tier upgrades"),
     ("raid", "Raid velocity tracking, raid bursts, lockdown containment & raid purges"),
     ("misuse", "Spam ceiling hits (10-message limit), rate limit violations & ping abuse"),
-    ("ban", "Server bans, unbans, voice channel bans and voice unbans"),
-    ("joins", "Member joins with exact account age and <24h new account security flags"),
-    ("leaves", "Member leaves with duration spent in server and roles held"),
-    ("presence", "Member activity, streaming broadcasts and stage events"),
+    ("presence", "Member activity, streaming broadcasts and custom status"),
     ("automod", "AutoMod detections: phishing domains, scam links, zalgo text sanitizations"),
     ("relationship", "Server integrations, bot additions and webhook creations/deletions")
 ]
@@ -1204,7 +1208,16 @@ class SecurityAdmin(commands.GroupCog, name="security"):
             await interaction.response.send_message("❌ Bot lacks the **'Manage Channels'** permission to create channels.", ephemeral=True)
             return
 
-        await interaction.response.defer(ephemeral=True)
+    async def _execute_setup_full_suite(
+        self,
+        guild: discord.Guild,
+        prefix: str = "𝚲",
+        allowed_role: Optional[discord.Role] = None
+    ) -> Tuple[bool, str, Optional[discord.CategoryChannel], int, Optional[discord.Embed]]:
+        """Core worker that creates the private category and all 32 dedicated action channels."""
+        me = guild.me
+        if not me.guild_permissions.manage_channels:
+            return False, "Bot lacks the 'Manage Channels' permission.", None, 0, None
 
         clean_prefix = (prefix or "𝚲").strip()
 
@@ -1239,7 +1252,7 @@ class SecurityAdmin(commands.GroupCog, name="security"):
                 except Exception:
                     pass
             else:
-                category = await guild.create_category(category_name, overwrites=overwrites, reason="Automated 28-channel logging suite setup")
+                category = await guild.create_category(category_name, overwrites=overwrites, reason="Automated 32-channel logging suite setup")
 
             existing_channels = {ch.name.lower(): ch for ch in category.text_channels}
             created_channels = {}
@@ -1256,6 +1269,8 @@ class SecurityAdmin(commands.GroupCog, name="security"):
                         topic=ch_topic,
                         reason=f"Automated logging suite setup ({ch_key})"
                     )
+                    # Brief pause between creates to avoid hitting Discord channel rate limits
+                    await asyncio.sleep(0.35)
                 created_channels[ch_key] = ch
                 db_map[ch_key] = ch.id
                 bot_config.guild_log_channels_cache[(guild.id, ch_key)] = ch.id
@@ -1294,12 +1309,15 @@ class SecurityAdmin(commands.GroupCog, name="security"):
                     f"All **{total_count} dedicated security log channels** are active, locked, and auto-bound to Karuppu's audit engine.\n\n"
                     f"🔒 **Visibility:** Hidden from `@everyone` • Authorized Staff Only\n"
                     f"⚡ **Active Channels:** `{total_count}/{total_count}` Channels Online\n"
-                    f"🛡️ **Role Tracking:** Real-time logging of who gave/removed roles to/from members."
+                    f"🛡️ **Complete Coverage:** Voice, Text, Stage, Events, Announcements, Roles, Server & Moderation."
                 ),
                 timestamp=datetime.now(timezone.utc)
             )
             welcome_embed.set_footer(text="Karuppu Security & Audit Suite")
-            await welcome_target.send(embed=welcome_embed)
+            try:
+                await welcome_target.send(embed=welcome_embed)
+            except Exception:
+                pass
 
             # Summary to moderator
             reply_embed = discord.Embed(
@@ -1310,19 +1328,66 @@ class SecurityAdmin(commands.GroupCog, name="security"):
                     f"• **Category:** `{category.name}`\n"
                     f"• **Channel Pattern:** `🔒 . {clean_prefix} · <type> .`\n"
                     f"• **Total Channels:** **{total_count}** active channels\n"
-                    f"• **New Granular Features:** Who gave role to whom, soundboard, kicks, timeouts, VC state\n"
-                    f"• **Access:** Server Administrators & allowed roles only.\n"
+                    f"• **Coverage:** VC, Text, Stage, Events, Announcements, Kicks, Bans, Timeouts, Role changes (who gave/removed), Emojis, and Server changes\n"
+                    f"• **Access:** Server Administrators & allowed staff roles only.\n"
                     f"• **Auto-Binding:** 100% connected & routed\n\n"
-                    f"*(View your channel list to see all {total_count} channels organized cleanly in order!)*"
+                    f"*(View your channel list to see all {total_count} channels organized cleanly under `{category.name}`!)*"
                 )
             )
             if allowed_role:
                 reply_embed.add_field(name="Extra Staff Role Granted", value=allowed_role.mention, inline=False)
 
-            await interaction.followup.send(embed=reply_embed, ephemeral=True)
+            return True, "", category, total_count, reply_embed
         except Exception as e:
-            logger.exception("Failed setup_full_suite: %s", e)
-            await interaction.followup.send(f"❌ Error setting up full logging suite: `{e}`", ephemeral=True)
+            logger.exception("Failed _execute_setup_full_suite: %s", e)
+            return False, str(e), None, 0, None
+
+    @commands.command(name="logs", aliases=["setup_logs", "setuplogs", "setup"])
+    @commands.has_permissions(administrator=True)
+    async def msg_cmd_logs(self, ctx: commands.Context, prefix: str = "𝚲"):
+        """Prefix command (!logs or !setup) to create all 32 logging channels in a single command."""
+        if not (ctx.author.guild_permissions.administrator or ctx.author.id == ctx.guild.owner_id):
+            await ctx.reply("❌ Administrator permissions required to set up logs.")
+            return
+
+        status_msg = await ctx.reply("⚙️ **Creating private log category and all 32 dedicated log channels... Please wait a few seconds!**")
+        success, err, category, count, embed = await self._execute_setup_full_suite(ctx.guild, prefix=prefix)
+        if success and embed:
+            await status_msg.edit(content=f"✅ **Category `{category.name}` & all {count} channels created!**", embed=embed)
+        else:
+            await status_msg.edit(content=f"❌ Failed creating logging suite: `{err}`")
+
+    @app_commands.command(
+        name="setup_full_suite",
+        description="[Admins Only] Automatically creates all dedicated action log channels inside a private category."
+    )
+    @app_commands.describe(
+        prefix="Prefix for channel names (defaults to '𝚲')",
+        allowed_role="Optional: Extra staff/moderator role allowed to see these private log channels"
+    )
+    async def cmd_setup_full_suite(
+        self,
+        interaction: discord.Interaction,
+        prefix: Optional[str] = "𝚲",
+        allowed_role: Optional[discord.Role] = None
+    ):
+        """Creates private category and all dedicated log channels matching user's requested suite."""
+        if not self._check_mod(interaction):
+            await interaction.response.send_message("❌ Moderator permissions required.", ephemeral=True)
+            return
+
+        guild = interaction.guild
+        me = guild.me
+        if not me.guild_permissions.manage_channels:
+            await interaction.response.send_message("❌ Bot lacks the **'Manage Channels'** permission to create channels.", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True)
+        success, err, category, count, embed = await self._execute_setup_full_suite(guild, prefix=prefix, allowed_role=allowed_role)
+        if success and embed:
+            await interaction.followup.send(embed=embed, ephemeral=True)
+        else:
+            await interaction.followup.send(f"❌ Error setting up logging suite: `{err}`", ephemeral=True)
 
     @app_commands.command(
         name="auto_setup",
@@ -1764,12 +1829,20 @@ class ShortCommands(commands.Cog):
         self.bot = bot
         self.admin = admin
 
-    @app_commands.command(name="logs", description="[Admins Only] 1-Click setup of 28-channel logging suite with 𝚲.")
+    @app_commands.command(name="logs", description="[Admins Only] 1-Click setup of complete 32-channel logging suite with 𝚲.")
     @app_commands.describe(
         prefix="Tag prefix for channel names (default: '𝚲')",
         allowed_role="Optional: Extra staff/moderator role allowed to see these private log channels"
     )
     async def cmd_short_logs(self, interaction: discord.Interaction, prefix: Optional[str] = "𝚲", allowed_role: Optional[discord.Role] = None):
+        await self.admin.cmd_setup_full_suite(interaction, prefix=prefix, allowed_role=allowed_role)
+
+    @app_commands.command(name="setup", description="[Admins Only] 1-Click setup of complete 32-channel logging suite with 𝚲.")
+    @app_commands.describe(
+        prefix="Tag prefix for channel names (default: '𝚲')",
+        allowed_role="Optional: Extra staff/moderator role allowed to see these private log channels"
+    )
+    async def cmd_short_setup(self, interaction: discord.Interaction, prefix: Optional[str] = "𝚲", allowed_role: Optional[discord.Role] = None):
         await self.admin.cmd_setup_full_suite(interaction, prefix=prefix, allowed_role=allowed_role)
 
     @app_commands.command(name="vcban", description="Ban a member from connecting to voice channels.")

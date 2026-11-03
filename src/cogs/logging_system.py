@@ -6,7 +6,7 @@ import time
 import logging
 import asyncio
 from datetime import datetime, timezone, timedelta
-from typing import Optional, Union, List, Any, Dict, Tuple
+from typing import Optional, Union, List, Any, Dict, Tuple, Sequence
 import discord
 from discord.ext import commands
 from src.config import bot_config
@@ -1000,7 +1000,13 @@ class LoggingSystem(commands.Cog):
     @commands.Cog.listener()
     async def on_guild_channel_create(self, channel: discord.abc.GuildChannel):
         guild = channel.guild
-        log_channel = self._get_target_channel(guild, "channel") or self._get_target_channel(guild, "server")
+        if channel.type == discord.ChannelType.news:
+            log_channel = self._get_target_channel(guild, "announcement") or self._get_target_channel(guild, "channel") or self._get_target_channel(guild, "server")
+        elif channel.type == discord.ChannelType.stage_voice:
+            log_channel = self._get_target_channel(guild, "stage") or self._get_target_channel(guild, "channel") or self._get_target_channel(guild, "voice")
+        else:
+            log_channel = self._get_target_channel(guild, "channel") or self._get_target_channel(guild, "server")
+
         if not log_channel:
             return
 
@@ -1021,7 +1027,13 @@ class LoggingSystem(commands.Cog):
     @commands.Cog.listener()
     async def on_guild_channel_delete(self, channel: discord.abc.GuildChannel):
         guild = channel.guild
-        log_channel = self._get_target_channel(guild, "channel") or self._get_target_channel(guild, "server")
+        if channel.type == discord.ChannelType.news:
+            log_channel = self._get_target_channel(guild, "announcement") or self._get_target_channel(guild, "channel") or self._get_target_channel(guild, "server")
+        elif channel.type == discord.ChannelType.stage_voice:
+            log_channel = self._get_target_channel(guild, "stage") or self._get_target_channel(guild, "channel") or self._get_target_channel(guild, "voice")
+        else:
+            log_channel = self._get_target_channel(guild, "channel") or self._get_target_channel(guild, "server")
+
         if not log_channel:
             return
 
@@ -1040,7 +1052,13 @@ class LoggingSystem(commands.Cog):
     @commands.Cog.listener()
     async def on_guild_channel_update(self, before: discord.abc.GuildChannel, after: discord.abc.GuildChannel):
         guild = after.guild
-        log_channel = self._get_target_channel(guild, "channel") or self._get_target_channel(guild, "server")
+        if after.type == discord.ChannelType.news:
+            log_channel = self._get_target_channel(guild, "announcement") or self._get_target_channel(guild, "channel") or self._get_target_channel(guild, "server")
+        elif after.type == discord.ChannelType.stage_voice:
+            log_channel = self._get_target_channel(guild, "stage") or self._get_target_channel(guild, "channel") or self._get_target_channel(guild, "voice")
+        else:
+            log_channel = self._get_target_channel(guild, "channel") or self._get_target_channel(guild, "server")
+
         if not log_channel:
             return
 
@@ -1321,6 +1339,209 @@ class LoggingSystem(commands.Cog):
             await msg_ch.send(embed=embed)
         except Exception:
             pass
+
+    @commands.Cog.listener()
+    async def on_stage_instance_create(self, stage_instance: discord.StageInstance):
+        guild = stage_instance.guild
+        if not guild:
+            return
+        stage_ch = self._get_target_channel(guild, "stage") or self._get_target_channel(guild, "channel")
+        if not stage_ch:
+            return
+        embed = discord.Embed(
+            title="🎭 Stage Opened / Started",
+            color=discord.Color.green(),
+            description=f"Stage opened in **{stage_instance.channel.mention}**",
+            timestamp=datetime.now(timezone.utc)
+        )
+        embed.add_field(name="Topic", value=stage_instance.topic, inline=False)
+        embed.add_field(name="Channel", value=f"{stage_instance.channel.mention} (`{stage_instance.channel.id}`)", inline=True)
+        embed.add_field(name="Privacy", value=str(stage_instance.privacy_level).title(), inline=True)
+        try:
+            await stage_ch.send(embed=embed)
+        except Exception:
+            pass
+
+    @commands.Cog.listener()
+    async def on_stage_instance_delete(self, stage_instance: discord.StageInstance):
+        guild = stage_instance.guild
+        if not guild:
+            return
+        stage_ch = self._get_target_channel(guild, "stage") or self._get_target_channel(guild, "channel")
+        if not stage_ch:
+            return
+        embed = discord.Embed(
+            title="🛑 Stage Closed / Ended",
+            color=discord.Color.red(),
+            description=f"Stage ended in **{stage_instance.channel.mention}**",
+            timestamp=datetime.now(timezone.utc)
+        )
+        embed.add_field(name="Topic", value=stage_instance.topic, inline=False)
+        try:
+            await stage_ch.send(embed=embed)
+        except Exception:
+            pass
+
+    @commands.Cog.listener()
+    async def on_stage_instance_update(self, before: discord.StageInstance, after: discord.StageInstance):
+        guild = after.guild
+        if not guild:
+            return
+        stage_ch = self._get_target_channel(guild, "stage") or self._get_target_channel(guild, "channel")
+        if not stage_ch:
+            return
+        changes = []
+        if before.topic != after.topic:
+            changes.append(f"**Topic:** `{before.topic}` ➔ `{after.topic}`")
+        if before.privacy_level != after.privacy_level:
+            changes.append(f"**Privacy:** `{before.privacy_level}` ➔ `{after.privacy_level}`")
+        if not changes:
+            return
+        embed = discord.Embed(
+            title="📝 Stage Updated",
+            color=discord.Color.gold(),
+            description=f"Stage in **{after.channel.mention}** was updated:\n" + "\n".join(changes),
+            timestamp=datetime.now(timezone.utc)
+        )
+        try:
+            await stage_ch.send(embed=embed)
+        except Exception:
+            pass
+
+    @commands.Cog.listener()
+    async def on_scheduled_event_create(self, event: discord.ScheduledEvent):
+        guild = event.guild
+        if not guild:
+            return
+        event_ch = self._get_target_channel(guild, "event") or self._get_target_channel(guild, "server")
+        if not event_ch:
+            return
+        embed = discord.Embed(
+            title="📅 Scheduled Event Created",
+            color=discord.Color.green(),
+            description=f"**[{event.name}]({event.url})** was created.",
+            timestamp=datetime.now(timezone.utc)
+        )
+        if event.description:
+            embed.add_field(name="Description", value=event.description[:500], inline=False)
+        creator_str = event.creator.mention if event.creator else "*Unknown*"
+        embed.add_field(name="Organizer", value=creator_str, inline=True)
+        if event.start_time:
+            embed.add_field(name="Start Time", value=discord.utils.format_dt(event.start_time, "F"), inline=True)
+        if event.channel:
+            embed.add_field(name="Location", value=event.channel.mention, inline=True)
+        elif event.location:
+            embed.add_field(name="Location", value=event.location, inline=True)
+        try:
+            await event_ch.send(embed=embed)
+        except Exception:
+            pass
+
+    @commands.Cog.listener()
+    async def on_scheduled_event_delete(self, event: discord.ScheduledEvent):
+        guild = event.guild
+        if not guild:
+            return
+        event_ch = self._get_target_channel(guild, "event") or self._get_target_channel(guild, "server")
+        if not event_ch:
+            return
+        embed = discord.Embed(
+            title="🗑️ Scheduled Event Canceled / Deleted",
+            color=discord.Color.red(),
+            description=f"Event **{event.name}** was deleted or canceled.",
+            timestamp=datetime.now(timezone.utc)
+        )
+        try:
+            await event_ch.send(embed=embed)
+        except Exception:
+            pass
+
+    @commands.Cog.listener()
+    async def on_scheduled_event_update(self, before: discord.ScheduledEvent, after: discord.ScheduledEvent):
+        guild = after.guild
+        if not guild:
+            return
+        event_ch = self._get_target_channel(guild, "event") or self._get_target_channel(guild, "server")
+        if not event_ch:
+            return
+        changes = []
+        if before.name != after.name:
+            changes.append(f"**Name:** `{before.name}` ➔ `{after.name}`")
+        if before.description != after.description:
+            changes.append("**Description updated**")
+        if before.status != after.status:
+            changes.append(f"**Status:** `{str(before.status).title()}` ➔ `{str(after.status).title()}`")
+        if before.start_time != after.start_time and after.start_time:
+            changes.append(f"**Start Time:** {discord.utils.format_dt(after.start_time, 'R')}")
+        if not changes:
+            return
+        embed = discord.Embed(
+            title="📅 Scheduled Event Updated",
+            color=discord.Color.blue(),
+            description=f"**[{after.name}]({after.url})** was updated:\n" + "\n".join(changes),
+            timestamp=datetime.now(timezone.utc)
+        )
+        try:
+            await event_ch.send(embed=embed)
+        except Exception:
+            pass
+
+    @commands.Cog.listener()
+    async def on_guild_emojis_update(self, guild: discord.Guild, before: Sequence[discord.Emoji], after: Sequence[discord.Emoji]):
+        emoji_ch = self._get_target_channel(guild, "emoji") or self._get_target_channel(guild, "server")
+        if not emoji_ch:
+            return
+        before_set = {e.id: e for e in before}
+        after_set = {e.id: e for e in after}
+        added = [e for eid, e in after_set.items() if eid not in before_set]
+        removed = [e for eid, e in before_set.items() if eid not in after_set]
+
+        embed = None
+        now_ts = datetime.now(timezone.utc)
+        if added:
+            embed = discord.Embed(title="😃 Server Emoji(s) Added", color=discord.Color.green(), timestamp=now_ts)
+            embed.description = " ".join([f"<:{e.name}:{e.id}> (`:{e.name}:`)" if not e.animated else f"<a:{e.name}:{e.id}> (`:{e.name}:`)" for e in added])
+        elif removed:
+            embed = discord.Embed(title="🗑️ Server Emoji(s) Removed", color=discord.Color.red(), timestamp=now_ts)
+            embed.description = ", ".join([f"`:{e.name}:`" for e in removed])
+        else:
+            renamed = []
+            for eid, e_after in after_set.items():
+                e_before = before_set.get(eid)
+                if e_before and e_before.name != e_after.name:
+                    renamed.append(f"`:{e_before.name}:` ➔ `:{e_after.name}:`")
+            if renamed:
+                embed = discord.Embed(title="✏️ Server Emoji(s) Renamed", color=discord.Color.gold(), timestamp=now_ts)
+                embed.description = "\n".join(renamed)
+
+        if embed:
+            try:
+                await emoji_ch.send(embed=embed)
+            except Exception:
+                pass
+
+    @commands.Cog.listener()
+    async def on_guild_stickers_update(self, guild: discord.Guild, before: Sequence[discord.GuildSticker], after: Sequence[discord.GuildSticker]):
+        emoji_ch = self._get_target_channel(guild, "emoji") or self._get_target_channel(guild, "server")
+        if not emoji_ch:
+            return
+        before_set = {s.id: s for s in before}
+        after_set = {s.id: s for s in after}
+        added = [s for sid, s in after_set.items() if sid not in before_set]
+        removed = [s for sid, s in before_set.items() if sid not in after_set]
+        embed = None
+        now_ts = datetime.now(timezone.utc)
+        if added:
+            embed = discord.Embed(title="🏷️ Sticker(s) Added", color=discord.Color.green(), timestamp=now_ts)
+            embed.description = ", ".join([f"**{s.name}**" for s in added])
+        elif removed:
+            embed = discord.Embed(title="🗑️ Sticker(s) Removed", color=discord.Color.red(), timestamp=now_ts)
+            embed.description = ", ".join([f"**{s.name}**" for s in removed])
+        if embed:
+            try:
+                await emoji_ch.send(embed=embed)
+            except Exception:
+                pass
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(LoggingSystem(bot))

@@ -47,22 +47,19 @@ class SecurityBot(commands.Bot):
     async def _health_handler(self, request: web.Request) -> web.Response:
         """Endpoint for Render container health check probes & keep-alive monitors."""
         is_ready = self.is_ready()
-        status_code = 200 if is_ready else 503
         data = {
             "status": "healthy" if is_ready else "starting",
             "bot": "Karuppu Security Bot",
-            "latency_ms": round(self.latency * 1000) if is_ready else None,
+            "latency_ms": round(self.latency * 1000) if is_ready and self.latency is not None else None,
             "guilds": len(self.guilds) if is_ready else 0,
             "dry_run": bot_config.dry_run
         }
-        return web.json_response(data, status=status_code)
+        return web.json_response(data, status=200)
 
     async def _start_healthcheck_server(self):
         """Starts the aiohttp server on HEALTH_PORT for container probes & web dashboard."""
         self.health_app.router.add_get("/", self._health_handler)
-        self.health_app.router.add_head("/", self._health_handler)
         self.health_app.router.add_get("/health", self._health_handler)
-        self.health_app.router.add_head("/health", self._health_handler)
         setup_dashboard_routes(self.health_app, self)
         self.health_runner = web.AppRunner(self.health_app)
         await self.health_runner.setup()
@@ -148,7 +145,6 @@ class SecurityBot(commands.Bot):
 
         # 3. Load Security Cogs
         extensions = [
-            "src.cogs.moderation_view",
             "src.cogs.trust_gate",
             "src.cogs.voice_protection",
             "src.cogs.raid_detector",

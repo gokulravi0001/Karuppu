@@ -3,7 +3,7 @@ import os
 import yaml
 import logging
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set, Tuple
 import discord
 from dotenv import load_dotenv
 

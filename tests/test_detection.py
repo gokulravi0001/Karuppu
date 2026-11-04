@@ -656,6 +656,23 @@ class TestQuarantineRoleRestoration(unittest.TestCase):
         self.assertTrue(self.cog._is_quarantine_role(self.q_role, self.guild))
         self.assertFalse(self.cog._is_quarantine_role(self.role_a, self.guild))
 
+    def test_is_admin_or_owner_and_bot_owner(self):
+        from src.config import bot_config
+        # Test bot_config.is_bot_owner
+        bot_config.owner_id = 7777777
+        self.assertTrue(bot_config.is_bot_owner(7777777))
+        self.assertFalse(bot_config.is_bot_owner(8888888))
+
+        # Test _is_admin_or_owner for bot owner
+        mock_owner = MagicMock()
+        mock_owner.id = 7777777
+        self.assertTrue(self.cog._is_admin_or_owner(mock_owner, self.guild))
+
+        # Test _is_admin_or_owner for server owner
+        mock_server_owner = MagicMock()
+        mock_server_owner.id = self.guild.owner_id
+        self.assertTrue(self.cog._is_admin_or_owner(mock_server_owner, self.guild))
+
     def test_quarantine_role_strip_and_backup_logic(self):
         target_roles = [self.guild.default_role, self.role_a, self.role_b]
         saved_roles = [r for r in target_roles if not r.managed and r != self.guild.default_role and not self.cog._is_quarantine_role(r, self.guild)]

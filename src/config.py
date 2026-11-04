@@ -117,6 +117,10 @@ class BotConfig:
         return self.raw_data.get("anti_nuke", {})
 
     # Owner bypass validation
+    def is_bot_owner(self, user_id: int) -> bool:
+        """Checks if a user is the configured bot owner."""
+        return bool(self.owner_id and user_id == self.owner_id)
+
     def is_guild_owner(self, guild: Optional[discord.Guild], user_id: int) -> bool:
         """Checks if a user is the server owner or configured owner."""
         if self.owner_id and user_id == self.owner_id:

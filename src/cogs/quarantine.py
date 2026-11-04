@@ -42,7 +42,7 @@ class QuarantineSystem(commands.Cog, name="quarantine"):
 
     def _is_admin_or_owner(self, user: Union[discord.Member, discord.User], guild: discord.Guild) -> bool:
         """Only Server Owner, Administrators, and authorized Manage Guild staff can manage quarantine."""
-        if user.id == guild.owner_id:
+        if bot_config.is_guild_owner(guild, user.id):
             return True
         if bot_config.is_bot_owner(user.id):
             return True
@@ -57,7 +57,7 @@ class QuarantineSystem(commands.Cog, name="quarantine"):
         """Validates that the moderator has authority to quarantine the target member."""
         if target.id == guild.owner_id:
             return False, "❌ Discord does not allow bots to modify the Server Owner's roles. Please test on an alternate or test account."
-        if target.id == moderator.id and not bot_config.is_bot_owner(moderator.id) and moderator.id != guild.owner_id:
+        if target.id == moderator.id and not bot_config.is_guild_owner(guild, moderator.id):
             return False, "❌ You cannot quarantine yourself. Please test on an alternate or test account."
         if target.id == guild.me.id:
             return False, "❌ You cannot quarantine the security bot."
@@ -65,7 +65,7 @@ class QuarantineSystem(commands.Cog, name="quarantine"):
             return False, "❌ Cannot quarantine the bot."
 
         # Server owner bypasses role hierarchy checks
-        if moderator.id != guild.owner_id and not bot_config.is_bot_owner(moderator.id):
+        if not bot_config.is_guild_owner(guild, moderator.id):
             # Target is an administrator
             if target.guild_permissions.administrator:
                 return False, "❌ You cannot quarantine another Administrator. Only the Server Owner can quarantine admins."

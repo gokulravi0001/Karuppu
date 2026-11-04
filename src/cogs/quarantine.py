@@ -55,10 +55,10 @@ class QuarantineSystem(commands.Cog, name="quarantine"):
 
     def _can_moderate_target(self, moderator: discord.Member, target: discord.Member, guild: discord.Guild) -> Tuple[bool, str]:
         """Validates that the moderator has authority to quarantine the target member."""
-        if target.id == moderator.id:
-            return False, "❌ You cannot quarantine yourself."
         if target.id == guild.owner_id:
-            return False, "❌ You cannot quarantine the Server Owner."
+            return False, "❌ Discord does not allow bots to modify the Server Owner's roles. Please test on an alternate or test account."
+        if target.id == moderator.id and not bot_config.is_bot_owner(moderator.id) and moderator.id != guild.owner_id:
+            return False, "❌ You cannot quarantine yourself. Please test on an alternate or test account."
         if target.id == guild.me.id:
             return False, "❌ You cannot quarantine the security bot."
         if target.bot and target.id == self.bot.user.id:
@@ -362,25 +362,24 @@ class QuarantineSystem(commands.Cog, name="quarantine"):
                         pass
 
         # 3. Strip all removable roles and assign Quarantine role
-        # Managed roles (e.g. Nitro Booster) and roles >= bot top role cannot be removed
+        # Managed roles (e.g. Nitro Booster) cannot be removed by Discord bots
         q_key = (guild.id, target.id)
         self._quarantining.add(q_key)
         try:
-            roles_to_keep = [r for r in target.roles if (r.managed or r >= guild.me.top_role) and r != guild.default_role and not self._is_quarantine_role(r, guild)]
-            new_roles = [guild.default_role, quarantine_role] + roles_to_keep
-            dedup_roles = []
-            for r in new_roles:
-                if r and r not in dedup_roles:
-                    dedup_roles.append(r)
+            managed_roles = [r for r in target.roles if r.managed and r != guild.default_role]
+            # ONLY quarantine_role and managed roles: ALL other roles are DELETED!
+            new_roles = [quarantine_role] + [r for r in managed_roles if r != quarantine_role]
 
             try:
-                await target.edit(roles=dedup_roles, reason=f"Quarantine enforced by {moderator}: {reason}")
+                await target.edit(roles=new_roles, reason=f"Quarantine enforced by {moderator}: {reason}")
+                logger.info("Successfully quarantined %s: all roles deleted, %s assigned", target, quarantine_role.name)
             except discord.Forbidden:
-                return False, "❌ Bot lacks permission to modify roles for this member. Check role hierarchy.", None
+                return False, "❌ Bot lacks permission to modify roles for this member. Ensure the bot's role is placed higher than the member's roles in Server Settings.", None
             except Exception as e:
-                # Fallback: remove non-kept roles and add quarantine role individually
+                logger.warning("target.edit failed in quarantine: %s. Trying individual role strip...", e)
+                # Fallback: remove all non-managed roles, add quarantine role
                 try:
-                    to_strip = [r for r in target.roles if r not in roles_to_keep and not self._is_quarantine_role(r, guild) and r != guild.default_role and r < guild.me.top_role and not r.managed]
+                    to_strip = [r for r in target.roles if not r.managed and r != guild.default_role and not self._is_quarantine_role(r, guild)]
                     if to_strip:
                         await target.remove_roles(*to_strip, reason=f"Quarantine enforced by {moderator}")
                     if quarantine_role not in target.roles:
@@ -520,12 +519,10 @@ class QuarantineSystem(commands.Cog, name="quarantine"):
                         restored_roles.append(role)
                         restored_names.append(role.name)
 
-                # Step 1: Strip Quarantine role from member's current roles
-                # Step 2: Add all restored previous roles
-                new_roles = [r for r in target.roles if not self._is_quarantine_role(r, guild) and r != guild.default_role]
-                for r in restored_roles:
-                    if r not in new_roles:
-                        new_roles.append(r)
+                # Step 1: Revoke Quarantine role completely!
+                # Step 2: Restore all previous roles!
+                managed_roles = [r for r in target.roles if r.managed and r != guild.default_role]
+                new_roles = managed_roles + [r for r in restored_roles if r not in managed_roles]
 
                 try:
                     await target.edit(roles=new_roles, reason=f"Quarantine lifted by {moderator}: {reason}")

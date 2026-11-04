@@ -658,15 +658,16 @@ class TestQuarantineRoleRestoration(unittest.TestCase):
 
     def test_quarantine_role_strip_and_backup_logic(self):
         target_roles = [self.guild.default_role, self.role_a, self.role_b]
-        saved_roles = [r for r in target_roles if r != self.guild.default_role and not self.cog._is_quarantine_role(r, self.guild)]
+        saved_roles = [r for r in target_roles if not r.managed and r != self.guild.default_role and not self.cog._is_quarantine_role(r, self.guild)]
         saved_role_ids = [r.id for r in saved_roles]
         self.assertEqual(saved_role_ids, [201, 202])
 
-        roles_to_keep = [r for r in target_roles if (r.managed or r >= self.guild.me.top_role) and r != self.guild.default_role and not self.cog._is_quarantine_role(r, self.guild)]
-        new_roles = [self.guild.default_role, self.q_role] + roles_to_keep
-        self.assertIn(self.q_role, new_roles)
+        managed_roles = [r for r in target_roles if r.managed and r != self.guild.default_role]
+        new_roles = [self.q_role] + [r for r in managed_roles if r != self.q_role]
+        self.assertEqual(new_roles, [self.q_role])
         self.assertNotIn(self.role_a, new_roles)
         self.assertNotIn(self.role_b, new_roles)
+        self.assertNotIn(self.guild.default_role, new_roles)
 
     def test_unquarantine_restores_roles_and_removes_quarantine_role(self):
         # Target currently in quarantine
@@ -679,13 +680,8 @@ class TestQuarantineRoleRestoration(unittest.TestCase):
             if role and not role.managed and role < self.guild.me.top_role and not self.cog._is_quarantine_role(role, self.guild):
                 restored_roles.append(role)
 
-        # Build unquarantined roles:
-        # Step 1: Remove quarantine role
-        # Step 2: Add restored roles
-        unq_roles = [r for r in target_roles if not self.cog._is_quarantine_role(r, self.guild) and r != self.guild.default_role]
-        for r in restored_roles:
-            if r not in unq_roles:
-                unq_roles.append(r)
+        managed_roles = [r for r in target_roles if r.managed and r != self.guild.default_role]
+        unq_roles = managed_roles + [r for r in restored_roles if r not in managed_roles]
 
         # Verification 1: Quarantine role MUST be removed
         self.assertNotIn(self.q_role, unq_roles)
@@ -693,6 +689,7 @@ class TestQuarantineRoleRestoration(unittest.TestCase):
         # Verification 2: All previous roles MUST return
         self.assertIn(self.role_a, unq_roles)
         self.assertIn(self.role_b, unq_roles)
+        self.assertNotIn(self.guild.default_role, unq_roles)
 
 
 if __name__ == "__main__":

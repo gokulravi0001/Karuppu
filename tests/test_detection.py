@@ -602,7 +602,7 @@ class TestFullSuiteLoggingResolution(unittest.TestCase):
 
         # Verify lambda prefix default
         import inspect
-        sig = inspect.signature(SecurityAdmin.cmd_setup_full_suite.callback)
+        sig = inspect.signature(ShortCommands.cmd_short_logs.callback)
         prefix_param = sig.parameters.get("prefix")
         self.assertIsNotNone(prefix_param)
         self.assertEqual(prefix_param.default, "𝚲")

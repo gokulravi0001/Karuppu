@@ -1485,23 +1485,6 @@ class SecurityAdmin(commands.GroupCog, name="security"):
         else:
             await interaction.followup.send(f"❌ Error setting up logging suite: `{err}`", ephemeral=True)
 
-    @app_commands.command(
-        name="setup_full_suite",
-        description="[Admins Only] 1-Click setup of complete 32-channel logging suite with 𝚲."
-    )
-    @app_commands.describe(
-        prefix="Prefix for channel names (defaults to '𝚲')",
-        allowed_role="Optional: Extra staff/moderator role allowed to see these private log channels"
-    )
-    async def cmd_setup_full_suite(
-        self,
-        interaction: discord.Interaction,
-        prefix: Optional[str] = "𝚲",
-        allowed_role: Optional[discord.Role] = None
-    ):
-        """Creates private category and all dedicated log channels matching user's requested suite."""
-        await self._handle_setup_full_suite(interaction, prefix=prefix, allowed_role=allowed_role)
-
     @app_commands.command(name="setup", description="View current security configuration and level role gates for this server.")
     async def cmd_setup(self, interaction: discord.Interaction):
         if not self._check_mod(interaction):
@@ -1598,7 +1581,7 @@ class SecurityAdmin(commands.GroupCog, name="security"):
                     f"**Reason:** {reason}\n"
                     f"**Moderator:** {interaction.user.mention}\n\n"
                     f"{msg}\n\n"
-                    f"Use `/security unlock` to reverse the lockdown at any time."
+                    f"Use `/unlock` to reverse the lockdown at any time."
                 ),
                 color=discord.Color.red()
             )
@@ -1606,7 +1589,6 @@ class SecurityAdmin(commands.GroupCog, name="security"):
         else:
             await interaction.followup.send(f"❌ {msg}", ephemeral=True)
 
-    @app_commands.command(name="unlock", description="Lift an active server lockdown immediately.")
     async def cmd_unlock(self, interaction: discord.Interaction):
         if not self._check_mod(interaction):
             await interaction.response.send_message("❌ Moderator permissions required.", ephemeral=True)
@@ -1712,7 +1694,6 @@ class SecurityAdmin(commands.GroupCog, name="security"):
         )
         await interaction.response.send_message(embed=embed)
 
-    @app_commands.command(name="status", description="Displays security status, active rules, level gates, and health.")
     async def cmd_status(self, interaction: discord.Interaction):
         if not self._check_mod(interaction):
             await interaction.response.send_message("❌ Moderator permissions required.", ephemeral=True)
@@ -1779,14 +1760,6 @@ class ShortCommands(commands.Cog):
         allowed_role="Optional: Extra staff/moderator role allowed to see these private log channels"
     )
     async def cmd_short_logs(self, interaction: discord.Interaction, prefix: Optional[str] = "𝚲", allowed_role: Optional[discord.Role] = None):
-        await self.admin._handle_setup_full_suite(interaction, prefix=prefix, allowed_role=allowed_role)
-
-    @app_commands.command(name="setup", description="[Admins Only] 1-Click setup of complete 32-channel logging suite with 𝚲.")
-    @app_commands.describe(
-        prefix="Tag prefix for channel names (default: '𝚲')",
-        allowed_role="Optional: Extra staff/moderator role allowed to see these private log channels"
-    )
-    async def cmd_short_setup(self, interaction: discord.Interaction, prefix: Optional[str] = "𝚲", allowed_role: Optional[discord.Role] = None):
         await self.admin._handle_setup_full_suite(interaction, prefix=prefix, allowed_role=allowed_role)
 
     @app_commands.command(name="vcban", description="Ban a member from connecting to voice channels.")

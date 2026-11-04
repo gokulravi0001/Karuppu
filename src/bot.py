@@ -387,8 +387,8 @@ class SecurityBot(commands.Bot):
                     content=(
                         f"✅ **Synced {len(synced_guild)} slash commands instantly to this server!**\n"
                         f"Global registry has **{len(synced)}** commands registered.\n\n"
-                        f"👉 You can use `/logs` or `/setup` right away!\n"
-                        f"*(Or type `!logs` or `!setup` in chat directly anytime!)*"
+                        f"👉 You can use `/logs` right away to setup your 32-channel logging suite!\n"
+                        f"*(Or type `!logs` or `!logsync` in chat directly anytime!)*"
                     )
                 )
             except Exception as e:

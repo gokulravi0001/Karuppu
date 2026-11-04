@@ -267,9 +267,15 @@ class SecurityBot(commands.Bot):
         logger.info("Monitored Guilds: %d", len(self.guilds))
         logger.info("=" * 50)
 
-        # Slash commands: avoid spamming global tree.sync() on every restart to prevent Cloudflare 429 IP bans.
-        # Use '!sync' in chat to refresh commands on-demand.
-        logger.info("Bot connected to Gateway. Slash commands are registered globally (use '!sync' to force refresh).")
+        # Slash commands: sync directly to all connected servers so commands appear INSTANTLY in every server (including ChukkaVerse)
+        logger.info("Syncing slash commands across all connected servers...")
+        for guild in self.guilds:
+            try:
+                self.tree.copy_global_to(guild=guild)
+                synced = await self.tree.sync(guild=guild)
+                logger.info("Instantly synced %d slash commands to guild '%s' (%d)", len(synced), guild.name, guild.id)
+            except Exception as se:
+                logger.warning("Could not sync commands to guild '%s': %s", guild.name, se)
 
         # 3. Auto-discover and bind existing log channels for all guilds
         from src.cogs.admin import FULL_LOG_CHANNELS

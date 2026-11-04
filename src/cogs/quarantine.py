@@ -1,11 +1,9 @@
 """Quarantine System Cog for Karuppu / Antigravity Security Bot.
 Provides indefinite member isolation:
-- Strips all member roles and backs them up in database.
-- Assigns the Quarantine role.
-- Enforces Category-level isolation: hides ALL server categories & channels except the designated Quarantine Category.
-- Disconnects from and blocks voice channels.
-- Persists across member rejoins and unauthorized role grants.
-- Unquarantine by Admin/Owner restores all backed-up roles seamlessly.
+- /quarantine: Strips all roles, backs them up, applies Quarantine role, blocks all channel & voice access.
+- /quarantine_setup: Asks for role, creates quarantine category with a text channel and voice channel, and isolates all other server categories.
+- /quarantine_view: Shows who all are currently quarantined in the server.
+- /unquarantine: Removes the quarantine role and restores all original backed-up roles.
 """
 import json
 import logging
@@ -94,7 +92,6 @@ class QuarantineSystem(commands.Cog, name="quarantine"):
         for role in guild.roles:
             rname = role.name.lower().strip()
             if rname in target_names or rname == cfg_name:
-                # Cache it in database
                 await db.set_quarantine_role(guild.id, role.id)
                 settings["quarantine_role_id"] = role.id
                 bot_config.guild_settings_cache[guild.id] = settings
@@ -146,8 +143,8 @@ class QuarantineSystem(commands.Cog, name="quarantine"):
         if guild.me.guild_permissions.manage_channels:
             try:
                 overwrites = {
-                    guild.default_role: discord.PermissionOverwrite(view_channel=False),
-                    guild.me: discord.PermissionOverwrite(view_channel=True, manage_channels=True, manage_permissions=True)
+                    guild.default_role: discord.PermissionOverwrite(view_channel=False, connect=False),
+                    guild.me: discord.PermissionOverwrite(view_channel=True, manage_channels=True, manage_permissions=True, send_messages=True, connect=True)
                 }
                 if quarantine_role:
                     overwrites[quarantine_role] = discord.PermissionOverwrite(
@@ -164,12 +161,17 @@ class QuarantineSystem(commands.Cog, name="quarantine"):
                     reason="Auto-created quarantine holding category"
                 )
 
-                # Create default chat channel inside it
+                # Create text and voice channels inside it
                 await guild.create_text_channel(
                     name="quarantine-chat",
                     category=cat,
-                    topic="Private holding channel for quarantined members. Only you and server staff can view this.",
-                    reason="Auto-created quarantine chat"
+                    topic="Private holding area for quarantined members.",
+                    reason="Auto-created quarantine text channel"
+                )
+                await guild.create_voice_channel(
+                    name="quarantine-voice",
+                    category=cat,
+                    reason="Auto-created quarantine voice channel"
                 )
 
                 await db.set_quarantine_category(guild.id, cat.id)
@@ -219,15 +221,21 @@ class QuarantineSystem(commands.Cog, name="quarantine"):
                 ev_ow = quarantine_category.overwrites.get(guild.default_role)
                 new_ev_ow = discord.PermissionOverwrite.from_pair(ev_ow.pair()[0], ev_ow.pair()[1]) if ev_ow else discord.PermissionOverwrite()
                 new_ev_ow.view_channel = False
+                new_ev_ow.connect = False
                 await quarantine_category.set_permissions(guild.default_role, overwrite=new_ev_ow, reason="Quarantine isolation: Hide from public")
 
-                # Sync or ensure child channels in quarantine category allow quarantine role
+                # Ensure child channels in quarantine category allow quarantine role
                 for ch in quarantine_category.channels:
                     try:
                         ch_ow = ch.overwrites.get(quarantine_role)
-                        if ch_ow and ch_ow.view_channel is False:
+                        if ch_ow and (ch_ow.view_channel is False or ch_ow.connect is False):
                             ch_ow.view_channel = True
-                            await ch.set_permissions(quarantine_role, overwrite=ch_ow, reason="Quarantine child channel view access")
+                            if isinstance(ch, discord.VoiceChannel):
+                                ch_ow.connect = True
+                                ch_ow.speak = True
+                            else:
+                                ch_ow.send_messages = True
+                            await ch.set_permissions(quarantine_role, overwrite=ch_ow, reason="Quarantine child channel access")
                     except Exception:
                         pass
             except Exception as e:
@@ -297,7 +305,7 @@ class QuarantineSystem(commands.Cog, name="quarantine"):
         # Resolve quarantine role
         quarantine_role = await self.get_or_create_quarantine_role(guild)
         if not quarantine_role:
-            return False, "❌ No **Quarantine** role found or could be created. Please create a role named `Quarantine`.", None
+            return False, "❌ No **Quarantine** role found or could be created. Please run `/quarantine_setup` first.", None
 
         if quarantine_role >= guild.me.top_role:
             return False, f"❌ Bot's highest role is lower than {quarantine_role.mention}. Please move the bot's role above `{quarantine_role.name}` in Server Settings.", None
@@ -638,10 +646,14 @@ class QuarantineSystem(commands.Cog, name="quarantine"):
                 pass
 
     # ==========================================
-    # SLASH COMMANDS: /quarantine, /unquarantine, /quarantined, /quarantine_setup, /quarantine_sync
+    # ONLY 4 QUARANTINE SLASH COMMANDS
     # ==========================================
 
-    @app_commands.command(name="quarantine", description="[Admins/Owner Only] Strip all roles and isolate a member indefinitely.")
+    # 1. /quarantine
+    @app_commands.command(
+        name="quarantine",
+        description="[Admins/Owner Only] Strip all roles and isolate a member indefinitely."
+    )
     @app_commands.describe(
         member="The member to place into quarantine",
         reason="Reason for placing member in quarantine (optional)"
@@ -659,33 +671,132 @@ class QuarantineSystem(commands.Cog, name="quarantine"):
 
         success, msg, embed = await self.quarantine_member(interaction.guild, member, interaction.user, reason=reason)
         if success and embed:
-            # Add helpful tip if user is server owner
             if interaction.guild.owner_id == member.id:
-                tip = "\n\n*(Note: Discord client always shows all channels to Server Owner. Use 'View Server as Role' to preview)*"
-                embed.description += tip
+                embed.description += "\n\n*(Note: Discord always shows all channels to Server Owner. Test using 'View Server as Role')*"
             await interaction.followup.send(embed=embed, ephemeral=True)
         else:
             await interaction.followup.send(msg, ephemeral=True)
 
-    @app_commands.command(name="unquarantine", description="[Admins/Owner Only] Lift quarantine and restore all original roles to a user.")
-    @app_commands.describe(
-        user="The member or user to release from quarantine",
-        reason="Reason for lifting quarantine (optional)"
+    # 2. /quarantine_setup
+    @app_commands.command(
+        name="quarantine_setup",
+        description="[Admins Only] Assigns quarantine role, creates quarantine category with text/voice channels & isolates server."
     )
-    async def slash_unquarantine(self, interaction: discord.Interaction, user: discord.User, reason: Optional[str] = "Quarantine lifted by staff"):
+    @app_commands.describe(
+        role="The Quarantine role (will be given text and voice access to the new quarantine category)"
+    )
+    async def slash_quarantine_setup(
+        self,
+        interaction: discord.Interaction,
+        role: discord.Role
+    ):
         await interaction.response.defer(ephemeral=True)
         if not self._is_admin_or_owner(interaction.user, interaction.guild):
-            await interaction.followup.send("❌ Only **Server Owners** and **Administrators** can lift quarantine.", ephemeral=True)
+            await interaction.followup.send("❌ Administrator or Server Owner permissions required.", ephemeral=True)
             return
 
-        success, msg, embed = await self.unquarantine_member(interaction.guild, user.id, interaction.user, reason=reason)
-        if success and embed:
-            await interaction.followup.send(embed=embed, ephemeral=True)
-        else:
-            await interaction.followup.send(msg, ephemeral=True)
+        guild = interaction.guild
+        me = guild.me
+        if not me.guild_permissions.manage_channels or not me.guild_permissions.manage_roles:
+            await interaction.followup.send("❌ Bot lacks **'Manage Channels'** or **'Manage Roles'** permissions.", ephemeral=True)
+            return
 
-    @app_commands.command(name="quarantined", description="[Admins/Owner Only] View all members currently in quarantine.")
-    async def slash_quarantined_list(self, interaction: discord.Interaction):
+        # Save role
+        await db.set_quarantine_role(guild.id, role.id)
+        settings = bot_config.guild_settings_cache.get(guild.id, {})
+        settings["quarantine_role_id"] = role.id
+
+        # 1. Base category overwrites
+        cat_overwrites = {
+            guild.default_role: discord.PermissionOverwrite(view_channel=False, connect=False),
+            me: discord.PermissionOverwrite(view_channel=True, manage_channels=True, manage_permissions=True, send_messages=True, connect=True),
+            role: discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True, connect=True, speak=True)
+        }
+
+        # Find existing or create category
+        category = None
+        cat_id = settings.get("quarantine_category_id")
+        if cat_id:
+            ch = guild.get_channel(cat_id)
+            if isinstance(ch, discord.CategoryChannel):
+                category = ch
+
+        if not category:
+            for c in guild.categories:
+                cname = c.name.lower().strip()
+                if "quarantine" in cname or "isolation" in cname:
+                    category = c
+                    break
+
+        if not category:
+            category = await guild.create_category("🔒 Quarantine Zone", overwrites=cat_overwrites, reason=f"Quarantine setup by {interaction.user}")
+        else:
+            try:
+                await category.set_permissions(guild.default_role, view_channel=False, connect=False, reason="Quarantine isolation")
+                await category.set_permissions(role, view_channel=True, send_messages=True, read_message_history=True, connect=True, speak=True, reason="Quarantine role access")
+                await category.set_permissions(me, view_channel=True, manage_channels=True, manage_permissions=True, send_messages=True, connect=True)
+            except Exception:
+                pass
+
+        await db.set_quarantine_category(guild.id, category.id)
+        settings["quarantine_category_id"] = category.id
+        bot_config.guild_settings_cache[guild.id] = settings
+
+        # 2. Create or find text channel
+        text_ch = None
+        for ch in category.text_channels:
+            if "quarantine" in ch.name.lower() or "chat" in ch.name.lower():
+                text_ch = ch
+                break
+        if not text_ch:
+            text_ch = await guild.create_text_channel(
+                name="quarantine-chat",
+                category=category,
+                topic="Private holding area for quarantined members.",
+                reason=f"Quarantine setup by {interaction.user}"
+            )
+
+        # 3. Create or find voice channel
+        voice_ch = None
+        for vc in category.voice_channels:
+            if "quarantine" in vc.name.lower() or "voice" in vc.name.lower() or "vc" in vc.name.lower():
+                voice_ch = vc
+                break
+        if not voice_ch:
+            voice_ch = await guild.create_voice_channel(
+                name="quarantine-voice",
+                category=category,
+                reason=f"Quarantine setup by {interaction.user}"
+            )
+
+        # 4. Isolate server: hide all other categories and orphaned channels
+        cats_h, chs_h, _ = await self.sync_quarantine_overwrites(guild, role, category)
+
+        embed = discord.Embed(
+            title="🛡️ Quarantine Setup Complete",
+            color=discord.Color.green(),
+            description=(
+                f"**Quarantine Category & Channels Created & Isolated!**\n\n"
+                f"🏷️ **Quarantine Role:** {role.mention} (`{role.id}`)\n"
+                f"📁 **Quarantine Category:** `{category.name}` (`{category.id}`)\n"
+                f"💬 **Text Channel:** {text_ch.mention}\n"
+                f"🔊 **Voice Channel:** {voice_ch.mention}\n\n"
+                f"🔒 **Server Isolation Enforced:**\n"
+                f"• `{cats_h}` other server categories hidden from {role.mention}\n"
+                f"• `{chs_h}` uncategorized channels hidden from {role.mention}\n\n"
+                f"✅ **Guaranteed:** Quarantined members can **ONLY** view and speak in this Quarantine category. All other channels in the server are completely invisible to them!"
+            ),
+            timestamp=datetime.now(timezone.utc)
+        )
+        embed.set_footer(text="Karuppu Quarantine Engine • Category & Channels Ready")
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    # 3. /quarantine_view
+    @app_commands.command(
+        name="quarantine_view",
+        description="[Admins/Owner Only] View all members currently in quarantine."
+    )
+    async def slash_quarantine_view(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
         if not self._is_admin_or_owner(interaction.user, interaction.guild):
             await interaction.followup.send("❌ Administrator or Server Owner permissions required.", ephemeral=True)
@@ -726,279 +837,137 @@ class QuarantineSystem(commands.Cog, name="quarantine"):
         embed.set_footer(text="Use /unquarantine to release a member and restore their roles.")
         await interaction.followup.send(embed=embed, ephemeral=True)
 
+    # 4. /unquarantine
     @app_commands.command(
-        name="quarantine_setup",
-        description="[Admins Only] Configure quarantine role and isolated category (hides all other categories)."
+        name="unquarantine",
+        description="[Admins/Owner Only] Lift quarantine and restore all original roles to a user."
     )
     @app_commands.describe(
-        category="The ONLY category quarantined members can see (all other categories are hidden)",
-        role="The role to use as Quarantine role (leave empty to auto-detect)",
-        auto_sync="Immediately enforce view_channel=False across all other categories (default: True)"
+        user="The member or user to release from quarantine",
+        reason="Reason for lifting quarantine (optional)"
     )
-    async def slash_quarantine_setup(
-        self,
-        interaction: discord.Interaction,
-        category: Optional[discord.CategoryChannel] = None,
-        role: Optional[discord.Role] = None,
-        auto_sync: Optional[bool] = True
-    ):
+    async def slash_unquarantine(self, interaction: discord.Interaction, user: discord.User, reason: Optional[str] = "Quarantine lifted by staff"):
         await interaction.response.defer(ephemeral=True)
         if not self._is_admin_or_owner(interaction.user, interaction.guild):
-            await interaction.followup.send("❌ Administrator or Server Owner permissions required.", ephemeral=True)
+            await interaction.followup.send("❌ Only **Server Owners** and **Administrators** can lift quarantine.", ephemeral=True)
             return
 
-        guild = interaction.guild
-        settings = bot_config.guild_settings_cache.get(guild.id, {})
-        changes = []
-
-        if role:
-            await db.set_quarantine_role(guild.id, role.id)
-            settings["quarantine_role_id"] = role.id
-            changes.append(f"• **Quarantine Role:** {role.mention} (`{role.id}`)")
-
-        if category:
-            await db.set_quarantine_category(guild.id, category.id)
-            settings["quarantine_category_id"] = category.id
-            changes.append(f"• **Quarantine Category:** `{category.name}` (`{category.id}`)")
-
-        bot_config.guild_settings_cache[guild.id] = settings
-
-        # Resolve current active role and category
-        active_role = role or await self.get_or_create_quarantine_role(guild)
-        active_category = category or await self.get_or_create_quarantine_category(guild, active_role)
-
-        sync_summary = ""
-        if auto_sync and active_role:
-            cats_h, chs_h, errs = await self.sync_quarantine_overwrites(guild, active_role, active_category)
-            cat_name = active_category.name if active_category else "None"
-            sync_summary = (
-                f"\n\n🛡️ **Channel Isolation Enforced:**\n"
-                f"• **Allowed Category:** `{cat_name}`\n"
-                f"• **Categories Hidden:** `{cats_h}` categories locked out for {active_role.mention}\n"
-                f"• **Orphan Channels Hidden:** `{chs_h}` channels locked out\n"
-                f"✅ Quarantined users can **only** see `{cat_name}`!"
-            )
-            if errs:
-                sync_summary += f"\n⚠️ *Notices: {len(errs)} items (check role permissions)*"
-
-        if not changes:
-            curr_role_id = settings.get("quarantine_role_id")
-            curr_cat_id = settings.get("quarantine_category_id")
-            r_str = f"<@&{curr_role_id}>" if curr_role_id else "*Auto-detected*"
-            c_str = f"`{guild.get_channel(curr_cat_id).name}`" if curr_cat_id and guild.get_channel(curr_cat_id) else "*Auto-detected*"
-            await interaction.followup.send(
-                f"⚙️ **Current Quarantine Configuration:**\n• **Role:** {r_str}\n• **Category:** {c_str}{sync_summary}\n\n*Provide `category` or `role` parameter to update.*",
-                ephemeral=True
-            )
-            return
-
-        embed = discord.Embed(
-            title="⚙️ Quarantine Configuration Updated",
-            color=discord.Color.green(),
-            description="Successfully updated quarantine settings:\n\n" + "\n".join(changes) + sync_summary,
-            timestamp=datetime.now(timezone.utc)
-        )
-        embed.set_footer(text="Karuppu Quarantine Engine • Category Isolation Active")
-        await interaction.followup.send(embed=embed, ephemeral=True)
-
-    @app_commands.command(
-        name="quarantine_sync",
-        description="[Admins Only] 1-Click sync to hide ALL server categories from quarantined members."
-    )
-    async def slash_quarantine_sync(self, interaction: discord.Interaction):
-        """Immediately scans every category and channel in the server and locks them against the Quarantine role."""
-        await interaction.response.defer(ephemeral=True)
-        if not self._is_admin_or_owner(interaction.user, interaction.guild):
-            await interaction.followup.send("❌ Administrator or Server Owner permissions required.", ephemeral=True)
-            return
-
-        guild = interaction.guild
-        quarantine_role = await self.get_or_create_quarantine_role(guild)
-        if not quarantine_role:
-            await interaction.followup.send("❌ No Quarantine role found or configured.", ephemeral=True)
-            return
-
-        quarantine_category = await self.get_or_create_quarantine_category(guild, quarantine_role)
-        cats_h, chs_h, errs = await self.sync_quarantine_overwrites(guild, quarantine_role, quarantine_category)
-
-        cat_desc = f"`{quarantine_category.name}`" if quarantine_category else "*None*"
-        embed = discord.Embed(
-            title="🔄 Quarantine Category Isolation Synced",
-            color=discord.Color.green(),
-            description=(
-                f"**Server-Wide Quarantine Isolation Applied!**\n\n"
-                f"🛡️ **Quarantine Role:** {quarantine_role.mention}\n"
-                f"📁 **Allowed Category:** {cat_desc}\n"
-                f"🚫 **Categories Hidden:** `{cats_h}` categories denied for {quarantine_role.mention}\n"
-                f"🔒 **Orphan Channels Hidden:** `{chs_h}` channels denied\n\n"
-                f"✅ **Result:** Quarantined members can **ONLY** view and speak inside {cat_desc}. All other server categories and channels are completely invisible to them!"
-            ),
-            timestamp=datetime.now(timezone.utc)
-        )
-        embed.set_footer(text="Karuppu Quarantine Isolation Engine")
-        await interaction.followup.send(embed=embed, ephemeral=True)
+        success, msg, embed = await self.unquarantine_member(interaction.guild, user.id, interaction.user, reason=reason)
+        if success and embed:
+            await interaction.followup.send(embed=embed, ephemeral=True)
+        else:
+            await interaction.followup.send(msg, ephemeral=True)
 
     # ==========================================
-    # PREFIX COMMANDS: !quarantine, !unquarantine, !quarantined, !quarantinesync
+    # PREFIX COMMANDS: !quarantine, !unquarantine, !quarantine_setup, !quarantine_view
     # ==========================================
 
     @commands.command(name="quarantine", aliases=["isolate"])
-    async def cmd_quarantine(self, ctx: commands.Context, target_or_subcmd: Optional[str] = None, *, extra_arg: Optional[str] = None):
-        """Prefix command:
-        - !quarantine @member [reason]
-        - !quarantine sync
-        - !quarantine setup <category_name_or_id>
-        - !quarantine category <category_name_or_id>
-        """
+    async def cmd_quarantine(self, ctx: commands.Context, target: Optional[discord.Member] = None, *, reason: Optional[str] = "Quarantined by staff"):
+        """Prefix command: !quarantine @member [reason]"""
         if not ctx.guild:
             return
         if not self._is_admin_or_owner(ctx.author, ctx.guild):
-            await ctx.send("❌ Only **Server Owners** and **Administrators** can run quarantine commands.")
+            await ctx.send("❌ Only **Server Owners** and **Administrators** can quarantine members.")
             return
 
-        # 1. Check subcommands: sync
-        if target_or_subcmd and target_or_subcmd.lower() in ("sync", "resync"):
-            quarantine_role = await self.get_or_create_quarantine_role(ctx.guild)
-            if not quarantine_role:
-                await ctx.send("❌ No Quarantine role found.")
-                return
-            quarantine_category = await self.get_or_create_quarantine_category(ctx.guild, quarantine_role)
-            cats_h, chs_h, _ = await self.sync_quarantine_overwrites(ctx.guild, quarantine_role, quarantine_category)
-            cat_desc = f"`{quarantine_category.name}`" if quarantine_category else "*None*"
-            await ctx.send(f"✅ **Quarantine Isolation Synced!** Allowed Category: {cat_desc} | Hidden Categories: `{cats_h}` | Hidden Channels: `{chs_h}`.")
+        if not target:
+            await ctx.send("ℹ️ **Usage:** `!quarantine @member [reason]`")
             return
 
-        # 2. Check subcommands: setup / category
-        if target_or_subcmd and target_or_subcmd.lower() in ("setup", "category", "setcategory"):
-            if not extra_arg:
-                await ctx.send("❌ Please specify the category name or ID: `!quarantine category <category_name_or_id>`")
-                return
-
-            # Find category
-            found_cat = None
-            clean_arg = extra_arg.strip().strip("<#>").strip()
-            if clean_arg.isdigit():
-                ch = ctx.guild.get_channel(int(clean_arg))
-                if isinstance(ch, discord.CategoryChannel):
-                    found_cat = ch
-
-            if not found_cat:
-                for cat in ctx.guild.categories:
-                    if cat.name.lower() == extra_arg.lower() or extra_arg.lower() in cat.name.lower():
-                        found_cat = cat
-                        break
-
-            if not found_cat:
-                await ctx.send(f"❌ Could not find category matching `{extra_arg}` in this server.")
-                return
-
-            await db.set_quarantine_category(ctx.guild.id, found_cat.id)
-            settings = bot_config.guild_settings_cache.get(ctx.guild.id, {})
-            settings["quarantine_category_id"] = found_cat.id
-            bot_config.guild_settings_cache[ctx.guild.id] = settings
-
-            quarantine_role = await self.get_or_create_quarantine_role(ctx.guild)
-            cats_h, chs_h, _ = await self.sync_quarantine_overwrites(ctx.guild, quarantine_role, found_cat)
-
-            await ctx.send(
-                f"✅ **Quarantine Category Updated to `{found_cat.name}`!**\n"
-                f"• `{cats_h}` other categories hidden.\n"
-                f"• `{chs_h}` orphaned channels hidden.\n"
-                f"Quarantined users will now **only** see `{found_cat.name}`."
-            )
-            return
-
-        # 3. Standard member quarantine: !quarantine @member [reason]
-        if not target_or_subcmd:
-            await ctx.send("ℹ️ **Usage:**\n• `!quarantine @member [reason]`\n• `!quarantine sync`\n• `!quarantine category <category_name>`\n• `!unquarantine @member`\n• `!quarantined`")
-            return
-
-        # Resolve member
-        target_member = None
-        if ctx.message.mentions:
-            target_member = ctx.message.mentions[0]
-        else:
-            clean_id = target_or_subcmd.strip("<@!>").strip()
-            if clean_id.isdigit():
-                target_member = ctx.guild.get_member(int(clean_id))
-
-        if not target_member:
-            await ctx.send(f"❌ Could not find member `{target_or_subcmd}`. Please mention the member: `!quarantine @user [reason]`")
-            return
-
-        can_mod, err = self._can_moderate_target(ctx.author, target_member, ctx.guild)
+        can_mod, err = self._can_moderate_target(ctx.author, target, ctx.guild)
         if not can_mod:
             await ctx.send(err)
             return
 
-        reason = extra_arg or "Quarantined by staff"
-        success, msg, embed = await self.quarantine_member(ctx.guild, target_member, ctx.author, reason=reason)
+        success, msg, embed = await self.quarantine_member(ctx.guild, target, ctx.author, reason=reason)
         if success and embed:
             await ctx.send(embed=embed)
         else:
             await ctx.send(msg)
 
-    @commands.command(name="quarantinesync", aliases=["qsync"])
-    async def cmd_quarantine_sync(self, ctx: commands.Context):
-        """Prefix command: !quarantinesync (hides all server categories from quarantine role)"""
+    @commands.command(name="quarantine_setup", aliases=["quarantinesetup"])
+    async def cmd_quarantine_setup(self, ctx: commands.Context, role: discord.Role):
+        """Prefix command: !quarantine_setup @role"""
         if not ctx.guild or not self._is_admin_or_owner(ctx.author, ctx.guild):
             await ctx.send("❌ Administrator or Server Owner permissions required.")
             return
 
-        quarantine_role = await self.get_or_create_quarantine_role(ctx.guild)
-        if not quarantine_role:
-            await ctx.send("❌ No Quarantine role found.")
+        status_msg = await ctx.send("⚙️ **Setting up quarantine category, text channel, voice channel and server isolation...**")
+        guild = ctx.guild
+        me = guild.me
+        if not me.guild_permissions.manage_channels or not me.guild_permissions.manage_roles:
+            await status_msg.edit(content="❌ Bot lacks 'Manage Channels' or 'Manage Roles' permission.")
             return
 
-        quarantine_category = await self.get_or_create_quarantine_category(ctx.guild, quarantine_role)
-        cats_h, chs_h, _ = await self.sync_quarantine_overwrites(ctx.guild, quarantine_role, quarantine_category)
-        cat_desc = f"`{quarantine_category.name}`" if quarantine_category else "*None*"
+        await db.set_quarantine_role(guild.id, role.id)
+        settings = bot_config.guild_settings_cache.get(guild.id, {})
+        settings["quarantine_role_id"] = role.id
 
-        await ctx.send(
-            f"✅ **Quarantine Isolation Synced!**\n"
-            f"• **Allowed Category:** {cat_desc}\n"
-            f"• **Hidden Categories:** `{cats_h}`\n"
-            f"• **Hidden Orphan Channels:** `{chs_h}`\n\n"
-            f"Quarantined members are now completely restricted to {cat_desc}."
+        cat_overwrites = {
+            guild.default_role: discord.PermissionOverwrite(view_channel=False, connect=False),
+            me: discord.PermissionOverwrite(view_channel=True, manage_channels=True, manage_permissions=True, send_messages=True, connect=True),
+            role: discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True, connect=True, speak=True)
+        }
+
+        category = None
+        for c in guild.categories:
+            if "quarantine" in c.name.lower() or "isolation" in c.name.lower():
+                category = c
+                break
+
+        if not category:
+            category = await guild.create_category("🔒 Quarantine Zone", overwrites=cat_overwrites, reason=f"Quarantine setup by {ctx.author}")
+        else:
+            try:
+                await category.set_permissions(guild.default_role, view_channel=False, connect=False)
+                await category.set_permissions(role, view_channel=True, send_messages=True, read_message_history=True, connect=True, speak=True)
+            except Exception:
+                pass
+
+        await db.set_quarantine_category(guild.id, category.id)
+        settings["quarantine_category_id"] = category.id
+        bot_config.guild_settings_cache[guild.id] = settings
+
+        text_ch = None
+        for ch in category.text_channels:
+            if "quarantine" in ch.name.lower() or "chat" in ch.name.lower():
+                text_ch = ch
+                break
+        if not text_ch:
+            text_ch = await guild.create_text_channel(name="quarantine-chat", category=category, topic="Private holding area for quarantined members.")
+
+        voice_ch = None
+        for vc in category.voice_channels:
+            if "quarantine" in vc.name.lower() or "voice" in vc.name.lower() or "vc" in vc.name.lower():
+                voice_ch = vc
+                break
+        if not voice_ch:
+            voice_ch = await guild.create_voice_channel(name="quarantine-voice", category=category)
+
+        cats_h, chs_h, _ = await self.sync_quarantine_overwrites(guild, role, category)
+
+        embed = discord.Embed(
+            title="🛡️ Quarantine Setup Complete",
+            color=discord.Color.green(),
+            description=(
+                f"**Quarantine Category & Channels Created & Isolated!**\n\n"
+                f"🏷️ **Quarantine Role:** {role.mention} (`{role.id}`)\n"
+                f"📁 **Quarantine Category:** `{category.name}`\n"
+                f"💬 **Text Channel:** {text_ch.mention}\n"
+                f"🔊 **Voice Channel:** {voice_ch.mention}\n\n"
+                f"🔒 **Server Isolation Enforced:**\n"
+                f"• `{cats_h}` other server categories hidden from {role.mention}\n"
+                f"• `{chs_h}` uncategorized channels hidden from {role.mention}"
+            ),
+            timestamp=datetime.now(timezone.utc)
         )
+        await status_msg.edit(content=None, embed=embed)
 
-    @commands.command(name="unquarantine", aliases=["release"])
-    async def cmd_unquarantine(self, ctx: commands.Context, user_arg: Optional[str] = None, *, reason: Optional[str] = "Quarantine lifted by staff"):
-        """Prefix command: !unquarantine @user [reason]"""
-        if not ctx.guild:
-            return
-        if not self._is_admin_or_owner(ctx.author, ctx.guild):
-            await ctx.send("❌ Only **Server Owners** and **Administrators** can lift quarantine.")
-            return
-
-        if not user_arg:
-            await ctx.send("ℹ️ **Usage:** `!unquarantine @user [reason]`")
-            return
-
-        target_uid = None
-        if ctx.message.mentions:
-            target_uid = ctx.message.mentions[0].id
-        else:
-            clean_id = user_arg.strip("<@!>").strip()
-            if clean_id.isdigit():
-                target_uid = int(clean_id)
-
-        if not target_uid:
-            await ctx.send(f"❌ Invalid user: `{user_arg}`. Mention the user: `!unquarantine @user`")
-            return
-
-        success, msg, embed = await self.unquarantine_member(ctx.guild, target_uid, ctx.author, reason=reason)
-        if success and embed:
-            await ctx.send(embed=embed)
-        else:
-            await ctx.send(msg)
-
-    @commands.command(name="quarantined", aliases=["quarantinelist"])
-    async def cmd_quarantined_list(self, ctx: commands.Context):
-        """Prefix command: !quarantined (lists active quarantined members)"""
-        if not ctx.guild:
-            return
-        if not self._is_admin_or_owner(ctx.author, ctx.guild):
+    @commands.command(name="quarantine_view", aliases=["quarantined", "quarantinelist"])
+    async def cmd_quarantine_view(self, ctx: commands.Context):
+        """Prefix command: !quarantine_view (lists active quarantined members)"""
+        if not ctx.guild or not self._is_admin_or_owner(ctx.author, ctx.guild):
             await ctx.send("❌ Administrator or Server Owner permissions required.")
             return
 
@@ -1036,6 +1005,19 @@ class QuarantineSystem(commands.Cog, name="quarantine"):
 
         embed.set_footer(text="Use !unquarantine @user to release a member and restore their roles.")
         await ctx.send(embed=embed)
+
+    @commands.command(name="unquarantine", aliases=["release"])
+    async def cmd_unquarantine(self, ctx: commands.Context, user: Union[discord.Member, discord.User], *, reason: Optional[str] = "Quarantine lifted by staff"):
+        """Prefix command: !unquarantine @user [reason]"""
+        if not ctx.guild or not self._is_admin_or_owner(ctx.author, ctx.guild):
+            await ctx.send("❌ Only **Server Owners** and **Administrators** can lift quarantine.")
+            return
+
+        success, msg, embed = await self.unquarantine_member(ctx.guild, user.id, ctx.author, reason=reason)
+        if success and embed:
+            await ctx.send(embed=embed)
+        else:
+            await ctx.send(msg)
 
 
 async def setup(bot: commands.Bot):

@@ -7,9 +7,10 @@ Provides indefinite member isolation:
 """
 import json
 import logging
+import re
 import time
 from datetime import datetime, timezone
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -54,6 +55,42 @@ class QuarantineSystem(commands.Cog, name="quarantine"):
             if user.guild_permissions.manage_guild:
                 return True
         return False
+
+    async def _resolve_member(self, guild: discord.Guild, target_input: Any) -> Optional[discord.Member]:
+        """Resolves a member from a discord.Member, discord.User, mention string, or raw ID."""
+        if not target_input:
+            return None
+        if isinstance(target_input, discord.Member):
+            return target_input
+        if isinstance(target_input, discord.User):
+            mem = guild.get_member(target_input.id)
+            if not mem:
+                try:
+                    mem = await guild.fetch_member(target_input.id)
+                except Exception:
+                    mem = None
+            return mem
+
+        target_str = str(target_input).strip()
+        # Clean mention <@!123> or <@123>
+        clean_id = re.sub(r"[<@!&>]", "", target_str)
+        if clean_id.isdigit():
+            uid = int(clean_id)
+            mem = guild.get_member(uid)
+            if not mem:
+                try:
+                    mem = await guild.fetch_member(uid)
+                except Exception:
+                    mem = None
+            if mem:
+                return mem
+
+        lower_str = target_str.lower()
+        for m in guild.members:
+            if m.name.lower() == lower_str or m.display_name.lower() == lower_str:
+                return m
+
+        return None
 
     def _can_moderate_target(self, moderator: discord.Member, target: discord.Member, guild: discord.Guild) -> Tuple[bool, str]:
         """Validates that the moderator has authority to quarantine the target member."""
@@ -509,9 +546,12 @@ class QuarantineSystem(commands.Cog, name="quarantine"):
         # Source 2: Discord Audit Logs (search for roles removed from this user)
         if not recovered_roles and guild.me.guild_permissions.view_audit_log:
             try:
-                async for entry in guild.audit_logs(action=discord.AuditLogAction.member_role_update, limit=50):
+                entries_found = 0
+                async for entry in guild.audit_logs(action=discord.AuditLogAction.member_role_update, limit=100):
                     if entry.target and entry.target.id == user_id:
-                        removed = getattr(entry.changes.before, "roles", None) or getattr(entry.before, "roles", None) or []
+                        changes = getattr(entry, "changes", None)
+                        before_obj = getattr(changes, "before", None) if changes else getattr(entry, "before", None)
+                        removed = getattr(before_obj, "roles", None) or []
                         for r in removed:
                             r_id = getattr(r, "id", None)
                             role = guild.get_role(int(r_id)) if r_id else None
@@ -521,9 +561,11 @@ class QuarantineSystem(commands.Cog, name="quarantine"):
                                 recovered_roles.append(role)
                                 recovered_names.append(role.name)
                                 seen_ids.add(role.id)
-                        if recovered_roles:
-                            logger.info("Auto-recovered %d roles from Discord Audit Logs for user %d in %s", len(recovered_roles), user_id, guild.name)
+                        entries_found += 1
+                        if entries_found >= 5:
                             break
+                if recovered_roles:
+                    logger.info("Auto-recovered %d roles from Discord Audit Logs for user %d in %s", len(recovered_roles), user_id, guild.name)
             except Exception as al_err:
                 logger.debug("Could not inspect audit logs for user %d: %s", user_id, al_err)
 
@@ -1036,21 +1078,97 @@ class QuarantineSystem(commands.Cog, name="quarantine"):
         description="[Admins/Owner Only] Lift quarantine and restore all original roles to a user."
     )
     @app_commands.describe(
-        user="The member or user to release from quarantine (leave empty to release yourself)",
+        member="The member you need to unquarantine and restore roles for (defaults to yourself)",
         reason="Reason for lifting quarantine (optional)"
     )
-    async def slash_unquarantine(self, interaction: discord.Interaction, user: Optional[discord.User] = None, reason: Optional[str] = "Quarantine lifted by staff"):
+    async def slash_unquarantine(
+        self,
+        interaction: discord.Interaction,
+        member: Optional[discord.Member] = None,
+        reason: Optional[str] = "Quarantine lifted by staff"
+    ):
         await interaction.response.defer(ephemeral=True)
         if not self._is_admin_or_owner(interaction.user, interaction.guild):
             await interaction.followup.send("❌ Only **Server Owners** and **Administrators** can lift quarantine.", ephemeral=True)
             return
 
-        target_user = user or interaction.user
-        success, msg, embed = await self.unquarantine_member(interaction.guild, target_user.id, interaction.user, reason=reason)
+        target_member = member or interaction.guild.get_member(interaction.user.id) or interaction.user
+        success, msg, embed = await self.unquarantine_member(interaction.guild, target_member.id, interaction.user, reason=reason)
         if success and embed:
             await interaction.followup.send(embed=embed, ephemeral=True)
         else:
             await interaction.followup.send(msg, ephemeral=True)
+
+    # 5. /restore_roles
+    @app_commands.command(
+        name="restore_roles",
+        description="[Admin/Owner Only] Mention whom you need to restore previous roles for."
+    )
+    @app_commands.describe(
+        member="The member whose previous roles you need to restore (defaults to yourself)"
+    )
+    async def slash_restore_roles(
+        self,
+        interaction: discord.Interaction,
+        member: Optional[discord.Member] = None
+    ):
+        await interaction.response.defer(ephemeral=True)
+        if not self._is_admin_or_owner(interaction.user, interaction.guild):
+            await interaction.followup.send("❌ Only **Server Owners** and **Administrators** can restore roles.", ephemeral=True)
+            return
+
+        target_member = member or interaction.guild.get_member(interaction.user.id) or interaction.user
+        recovered_roles, recovered_names = await self.recover_roles_for_member(interaction.guild, target_member.id)
+        if not recovered_roles:
+            await interaction.followup.send(f"❌ No prior role history found for {target_member.mention} in Discord Audit Logs or Incident Records.", ephemeral=True)
+            return
+
+        quarantine_role = await self.get_or_create_quarantine_role(interaction.guild)
+        manageable = [r for r in recovered_roles if not r.managed and r < interaction.guild.me.top_role]
+        unmanageable = [r.name for r in recovered_roles if r not in manageable]
+
+        # 1. Remove quarantine role if present
+        if quarantine_role and isinstance(target_member, discord.Member) and quarantine_role in target_member.roles:
+            try:
+                await target_member.remove_roles(quarantine_role, reason=f"Roles restored by {interaction.user}")
+            except Exception as e:
+                logger.warning("Could not remove quarantine role from %s: %s", target_member, e)
+
+        # 2. Add all manageable roles
+        applied = []
+        if isinstance(target_member, discord.Member):
+            for r in manageable:
+                if r not in target_member.roles:
+                    try:
+                        await target_member.add_roles(r, reason=f"Role recovery by {interaction.user}")
+                        applied.append(r.name)
+                    except Exception as add_err:
+                        logger.warning("Could not add role %s to %s: %s", r.name, target_member, add_err)
+                else:
+                    applied.append(r.name)
+
+        # Clear from DB & cache
+        await db.remove_quarantine(interaction.guild.id, target_member.id)
+        bot_config.quarantine_cache.pop((interaction.guild.id, target_member.id), None)
+
+        embed = discord.Embed(
+            title=f"✅ Roles Restored for {target_member.display_name}",
+            color=discord.Color.green(),
+            description=(
+                f"Successfully recovered and restored **{len(applied)}** roles for {target_member.mention}!\n\n"
+                f"**Restored Roles ({len(applied)}):** {', '.join(applied) if applied else 'None'}\n"
+            ),
+            timestamp=datetime.now(timezone.utc)
+        )
+        if unmanageable:
+            embed.add_field(
+                name="⚠️ Higher Role Hierarchy Notice",
+                value=f"These roles are equal to or higher than the bot's role and must be granted manually by the Server Owner:\n• {', '.join(unmanageable)}",
+                inline=False
+            )
+        embed.set_footer(text="Karuppu Role Recovery Engine")
+        await interaction.followup.send(embed=embed, ephemeral=True)
+        await self._dispatch_to_log_channels(interaction.guild, embed)
 
     # ==========================================
     # PREFIX COMMANDS: !quarantine, !unquarantine, !quarantine_setup, !quarantine_view
@@ -1201,22 +1319,28 @@ class QuarantineSystem(commands.Cog, name="quarantine"):
         await ctx.send(embed=embed)
 
     @commands.command(name="unquarantine", aliases=["release"])
-    async def cmd_unquarantine(self, ctx: commands.Context, user: Optional[Union[discord.Member, discord.User]] = None, *, reason: Optional[str] = "Quarantine lifted by staff"):
-        """Prefix command: !unquarantine [@user] [reason]"""
-        if not ctx.guild or not self._is_admin_or_owner(ctx.author, ctx.guild):
+    async def cmd_unquarantine(self, ctx: commands.Context, target: Optional[str] = None, *, reason: Optional[str] = "Quarantine lifted by staff"):
+        """Prefix command: !unquarantine [@member/ID] [reason]"""
+        if not ctx.guild:
+            return
+        if not self._is_admin_or_owner(ctx.author, ctx.guild):
             await ctx.send("❌ Only **Server Owners** and **Administrators** can lift quarantine.")
             return
 
-        target_user = user or ctx.author
-        success, msg, embed = await self.unquarantine_member(ctx.guild, target_user.id, ctx.author, reason=reason)
+        member = await self._resolve_member(ctx.guild, target) if target else ctx.author
+        if not member:
+            await ctx.send(f"❌ Could not find member `{target}` in this server. Please mention them or provide their ID.")
+            return
+
+        success, msg, embed = await self.unquarantine_member(ctx.guild, member.id, ctx.author, reason=reason)
         if success and embed:
             await ctx.send(embed=embed)
         else:
             await ctx.send(msg)
 
     @commands.command(name="restore_roles", aliases=["restoreroles", "recover_roles", "recoverroles"])
-    async def cmd_restore_roles(self, ctx: commands.Context, user: Optional[discord.Member] = None):
-        """Prefix command: !restore_roles [@member]
+    async def cmd_restore_roles(self, ctx: commands.Context, target: Optional[str] = None):
+        """Prefix command: !restore_roles [@member/ID]
         Scans Discord Audit Logs and Database incident history to recover and restore all previously stripped roles.
         """
         if not ctx.guild:
@@ -1225,7 +1349,11 @@ class QuarantineSystem(commands.Cog, name="quarantine"):
             await ctx.send("❌ Only **Server Owners** and **Administrators** can restore roles.")
             return
 
-        member = user or ctx.author
+        member = await self._resolve_member(ctx.guild, target) if target else ctx.author
+        if not member:
+            await ctx.send(f"❌ Could not find member `{target}` in this server. Please mention them or provide their ID.")
+            return
+
         status_msg = await ctx.send(f"🔍 **Scanning Discord Audit Logs and database history to recover roles for {member.mention}...**")
 
         recovered_roles, recovered_names = await self.recover_roles_for_member(ctx.guild, member.id)
@@ -1256,6 +1384,10 @@ class QuarantineSystem(commands.Cog, name="quarantine"):
             else:
                 applied.append(r.name)
 
+        # Clear from DB & cache
+        await db.remove_quarantine(ctx.guild.id, member.id)
+        bot_config.quarantine_cache.pop((ctx.guild.id, member.id), None)
+
         embed = discord.Embed(
             title=f"✅ Roles Restored for {member.display_name}",
             color=discord.Color.green(),
@@ -1273,6 +1405,7 @@ class QuarantineSystem(commands.Cog, name="quarantine"):
             )
         embed.set_footer(text="Karuppu Role Recovery Engine")
         await status_msg.edit(content=None, embed=embed)
+        await self._dispatch_to_log_channels(ctx.guild, embed)
 
 
 async def setup(bot: commands.Bot):

@@ -827,5 +827,73 @@ class TestLogChannelRenamingAndSuiteUpdates(unittest.TestCase):
         self.assertEqual(len(claimed_ids), 2)
 
 
+class TestMemberResolutionAndAdminAuth(unittest.TestCase):
+    def setUp(self):
+        import discord
+        from src.cogs.quarantine import QuarantineSystem
+        self.cog = QuarantineSystem(MagicMock())
+        self.discord = discord
+
+    def test_admin_and_owner_auth(self):
+        from src.config import bot_config
+        bot_config.owner_id = 999999
+
+        guild = MagicMock()
+        guild.owner_id = 111111
+
+        # Server owner
+        owner_user = MagicMock(id=111111)
+        self.assertTrue(self.cog._is_admin_or_owner(owner_user, guild))
+
+        # Bot owner
+        bot_owner = MagicMock(id=999999)
+        self.assertTrue(self.cog._is_admin_or_owner(bot_owner, guild))
+
+        # Administrator member
+        admin_member = MagicMock(spec=self.discord.Member, id=222222)
+        admin_member.guild_permissions.administrator = True
+        admin_member.guild_permissions.manage_guild = False
+        self.assertTrue(self.cog._is_admin_or_owner(admin_member, guild))
+
+        # Roleless member
+        normal_member = MagicMock(spec=self.discord.Member, id=333333)
+        normal_member.guild_permissions.administrator = False
+        normal_member.guild_permissions.manage_guild = False
+        self.assertFalse(self.cog._is_admin_or_owner(normal_member, guild))
+
+    def test_resolve_member_formats(self):
+        guild = MagicMock()
+        member_target = MagicMock(spec=self.discord.Member, id=444444, display_name="TestGokul")
+        member_target.name = "gokul_user"
+        guild.get_member.side_effect = lambda uid: member_target if uid == 444444 else None
+        guild.members = [member_target]
+
+        def step_coro(coro):
+            try:
+                coro.send(None)
+            except StopIteration as e:
+                return e.value
+
+        # 1. Mention format <@444444>
+        res1 = step_coro(self.cog._resolve_member(guild, "<@444444>"))
+        self.assertEqual(res1.id, 444444)
+
+        # 2. Nick mention format <@!444444>
+        res2 = step_coro(self.cog._resolve_member(guild, "<@!444444>"))
+        self.assertEqual(res2.id, 444444)
+
+        # 3. Numeric ID string
+        res3 = step_coro(self.cog._resolve_member(guild, "444444"))
+        self.assertEqual(res3.id, 444444)
+
+        # 4. Direct Member object
+        res4 = step_coro(self.cog._resolve_member(guild, member_target))
+        self.assertEqual(res4.id, 444444)
+
+        # 5. Display name string
+        res5 = step_coro(self.cog._resolve_member(guild, "TestGokul"))
+        self.assertEqual(res5.id, 444444)
+
+
 if __name__ == "__main__":
     unittest.main()

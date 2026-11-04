@@ -136,6 +136,7 @@ class AuditDatabase:
                 ("guard_voice_channel_id", "INTEGER"),
                 ("quarantine_role_id", "INTEGER"),
                 ("quarantine_channel_id", "INTEGER"),
+                ("quarantine_category_id", "INTEGER"),
             ]
             for col_name, col_type in log_cols:
                 try:
@@ -611,6 +612,16 @@ class AuditDatabase:
                 VALUES (?, ?)
                 ON CONFLICT(guild_id) DO UPDATE SET quarantine_channel_id = excluded.quarantine_channel_id;
             """, (guild_id, channel_id))
+            await db.commit()
+
+    async def set_quarantine_category(self, guild_id: int, category_id: int) -> None:
+        """Saves configured quarantine category ID in guild settings."""
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute("""
+                INSERT INTO guild_settings (guild_id, quarantine_category_id)
+                VALUES (?, ?)
+                ON CONFLICT(guild_id) DO UPDATE SET quarantine_category_id = excluded.quarantine_category_id;
+            """, (guild_id, category_id))
             await db.commit()
 
     async def prune_old_records(self, retention_days: int = 30) -> int:

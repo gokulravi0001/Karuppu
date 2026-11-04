@@ -1959,6 +1959,33 @@ class SecurityAdmin(commands.GroupCog, name="security"):
         else:
             await interaction.response.send_message("❌ Quarantine system is currently unavailable.", ephemeral=True)
 
+    @app_commands.command(name="quarantine_setup", description="[Admins Only] Configure quarantine role and isolated category.")
+    @app_commands.describe(
+        category="The ONLY category quarantined members will see (all other categories are hidden)",
+        role="The role to use as Quarantine role (leave empty to auto-detect)",
+        auto_sync="Immediately enforce view_channel=False across all other categories (default: True)"
+    )
+    async def cmd_quarantine_setup(
+        self,
+        interaction: discord.Interaction,
+        category: Optional[discord.CategoryChannel] = None,
+        role: Optional[discord.Role] = None,
+        auto_sync: Optional[bool] = True
+    ):
+        q_cog = self.bot.get_cog("quarantine")
+        if q_cog and hasattr(q_cog, "slash_quarantine_setup"):
+            await q_cog.slash_quarantine_setup(interaction, category=category, role=role, auto_sync=auto_sync)
+        else:
+            await interaction.response.send_message("❌ Quarantine system is currently unavailable.", ephemeral=True)
+
+    @app_commands.command(name="quarantine_sync", description="[Admins Only] Enforce quarantine isolation across all server categories & channels.")
+    async def cmd_quarantine_sync(self, interaction: discord.Interaction):
+        q_cog = self.bot.get_cog("quarantine")
+        if q_cog and hasattr(q_cog, "slash_quarantine_sync"):
+            await q_cog.slash_quarantine_sync(interaction)
+        else:
+            await interaction.response.send_message("❌ Quarantine system is currently unavailable.", ephemeral=True)
+
 
 class ShortCommands(commands.Cog):
     """Ultra-fast, short slash commands for daily Discord moderation."""

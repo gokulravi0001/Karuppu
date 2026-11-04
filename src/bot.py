@@ -141,6 +141,15 @@ class SecurityBot(commands.Bot):
         except Exception as e:
             logger.error("Failed loading active VC punishments: %s", e)
 
+        # 2c. Load Active Quarantined Members
+        try:
+            active_quarantines = await db.get_all_quarantined()
+            for q in active_quarantines:
+                bot_config.quarantine_cache[(q["guild_id"], q["user_id"])] = q
+            logger.info("Loaded %d active quarantined members into cache", len(bot_config.quarantine_cache))
+        except Exception as e:
+            logger.error("Failed loading active quarantined members: %s", e)
+
         # 3. Load Security Cogs
         extensions = [
             "src.cogs.trust_gate",
@@ -155,6 +164,7 @@ class SecurityBot(commands.Bot):
             "src.cogs.name_sanitizer",
             "src.cogs.webhook_guard",
             "src.cogs.lockdown",
+            "src.cogs.quarantine",
             "src.cogs.admin",
             "src.cogs.help",
             "src.cogs.logging_system"

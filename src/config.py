@@ -47,6 +47,7 @@ class BotConfig:
         self.guild_settings_cache: Dict[int, Dict[str, Any]] = {}
         self.vc_punishments_cache: Dict[Tuple[int, int], Dict[str, Any]] = {}
         self.guild_log_channels_cache: Dict[Tuple[int, str], int] = {}
+        self.quarantine_cache: Dict[Tuple[int, int], Dict[str, Any]] = {}
         self.load()
 
     def load(self) -> None:
@@ -251,6 +252,14 @@ class BotConfig:
             except Exception:
                 pass
         return entry
+
+    def is_quarantined(self, guild_id: int, user_id: int) -> bool:
+        """Checks if a user is currently quarantined in a guild."""
+        return (guild_id, user_id) in self.quarantine_cache
+
+    def get_quarantine(self, guild_id: int, user_id: int) -> Optional[Dict[str, Any]]:
+        """Retrieves active quarantine entry for a user."""
+        return self.quarantine_cache.get((guild_id, user_id))
 
     def is_dry_run(self, guild_id: Optional[int]) -> bool:
         """Returns the dry run status for a specific guild, falling back to default."""

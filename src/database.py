@@ -1,5 +1,6 @@
 """Database module for structured audit logging and owner bypass persistence."""
 import os
+import json
 import hashlib
 import logging
 from datetime import datetime, timedelta, timezone
@@ -106,6 +107,22 @@ class AuditDatabase:
             """)
             await db.execute("CREATE INDEX IF NOT EXISTS idx_log_chan ON guild_log_channels(guild_id, log_type);")
 
+            # Quarantined Members Table (Isolation, Saved Roles & Restoration)
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS quarantined_users (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    guild_id INTEGER NOT NULL,
+                    user_id INTEGER NOT NULL,
+                    saved_role_ids TEXT NOT NULL,
+                    quarantined_by INTEGER NOT NULL,
+                    reason TEXT,
+                    quarantined_at TEXT NOT NULL,
+                    overwrites_backup TEXT,
+                    UNIQUE(guild_id, user_id)
+                );
+            """)
+            await db.execute("CREATE INDEX IF NOT EXISTS idx_quarantine ON quarantined_users(guild_id, user_id);")
+
             # Ensure columns exist in existing database tables (automatic migration)
             log_cols = [
                 ("chat_log_channel_id", "INTEGER"),
@@ -117,6 +134,8 @@ class AuditDatabase:
                 ("unmute_role_id", "INTEGER"),
                 ("unmute_role_name", "TEXT"),
                 ("guard_voice_channel_id", "INTEGER"),
+                ("quarantine_role_id", "INTEGER"),
+                ("quarantine_channel_id", "INTEGER"),
             ]
             for col_name, col_type in log_cols:
                 try:
@@ -495,6 +514,104 @@ class AuditDatabase:
             """, (guild_id, user_id)) as cursor:
                 row = await cursor.fetchone()
                 return dict(row) if row else None
+
+    async def save_quarantine(
+        self,
+        guild_id: int,
+        user_id: int,
+        saved_role_ids: List[int],
+        quarantined_by: int,
+        reason: Optional[str] = None,
+        overwrites_backup: Optional[str] = None
+    ) -> None:
+        """Saves a member's quarantine state and backups their original roles."""
+        async with aiosqlite.connect(self.db_path) as db:
+            now_iso = datetime.now(timezone.utc).isoformat()
+            roles_json = json.dumps(saved_role_ids)
+            await db.execute("""
+                INSERT INTO quarantined_users (
+                    guild_id, user_id, saved_role_ids, quarantined_by, reason, quarantined_at, overwrites_backup
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(guild_id, user_id) DO UPDATE SET
+                    saved_role_ids = excluded.saved_role_ids,
+                    quarantined_by = excluded.quarantined_by,
+                    reason = excluded.reason,
+                    quarantined_at = excluded.quarantined_at,
+                    overwrites_backup = excluded.overwrites_backup;
+            """, (guild_id, user_id, roles_json, quarantined_by, reason or "Quarantined by staff", now_iso, overwrites_backup))
+            await db.commit()
+
+    async def get_quarantine(self, guild_id: int, user_id: int) -> Optional[Dict[str, Any]]:
+        """Retrieves a quarantined member's backup info and reason."""
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                "SELECT * FROM quarantined_users WHERE guild_id = ? AND user_id = ?",
+                (guild_id, user_id)
+            ) as cursor:
+                row = await cursor.fetchone()
+                if not row:
+                    return None
+                data = dict(row)
+                try:
+                    data["saved_role_ids"] = json.loads(data["saved_role_ids"])
+                except Exception:
+                    data["saved_role_ids"] = []
+                return data
+
+    async def remove_quarantine(self, guild_id: int, user_id: int) -> Optional[Dict[str, Any]]:
+        """Removes a user from quarantine and returns their backup role data."""
+        data = await self.get_quarantine(guild_id, user_id)
+        if data:
+            async with aiosqlite.connect(self.db_path) as db:
+                await db.execute(
+                    "DELETE FROM quarantined_users WHERE guild_id = ? AND user_id = ?",
+                    (guild_id, user_id)
+                )
+                await db.commit()
+        return data
+
+    async def get_all_quarantined(self, guild_id: Optional[int] = None) -> List[Dict[str, Any]]:
+        """Retrieves all active quarantined members."""
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            if guild_id is not None:
+                query = "SELECT * FROM quarantined_users WHERE guild_id = ? ORDER BY quarantined_at DESC"
+                params = (guild_id,)
+            else:
+                query = "SELECT * FROM quarantined_users ORDER BY quarantined_at DESC"
+                params = ()
+            async with db.execute(query, params) as cursor:
+                rows = await cursor.fetchall()
+                results = []
+                for r in rows:
+                    item = dict(r)
+                    try:
+                        item["saved_role_ids"] = json.loads(item["saved_role_ids"])
+                    except Exception:
+                        item["saved_role_ids"] = []
+                    results.append(item)
+                return results
+
+    async def set_quarantine_role(self, guild_id: int, role_id: int) -> None:
+        """Saves configured quarantine role ID in guild settings."""
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute("""
+                INSERT INTO guild_settings (guild_id, quarantine_role_id)
+                VALUES (?, ?)
+                ON CONFLICT(guild_id) DO UPDATE SET quarantine_role_id = excluded.quarantine_role_id;
+            """, (guild_id, role_id))
+            await db.commit()
+
+    async def set_quarantine_channel(self, guild_id: int, channel_id: int) -> None:
+        """Saves configured quarantine channel ID in guild settings."""
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute("""
+                INSERT INTO guild_settings (guild_id, quarantine_channel_id)
+                VALUES (?, ?)
+                ON CONFLICT(guild_id) DO UPDATE SET quarantine_channel_id = excluded.quarantine_channel_id;
+            """, (guild_id, channel_id))
+            await db.commit()
 
     async def prune_old_records(self, retention_days: int = 30) -> int:
         """Prunes incident logs older than retention period for privacy compliance."""

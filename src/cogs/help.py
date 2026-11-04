@@ -69,6 +69,7 @@ HELP_PAGES = {
             "• ☣️ **Executable Blocker**: Instantly deletes `.exe`, `.scr`, `.bat`, `.apk`, and double-extension files (`photo.png.exe`).\n"
             "• 🤖 **Compromised Account Shield**: If a real friend's account gets hacked and starts sending *\"test my new game\"* token stealers, the bot quarantines the account for 1 hour to prevent damage.\n"
             "• 🏷️ **Zalgo / Screen-Lag Sanitizer**: Cleans invisible names or vertical screen-crashing text.\n"
+            "• 🔒 **Member Quarantine & Role Backup**: Use `/quarantine @member [reason]` (or `!quarantine`) to strip all roles, block channel/voice visibility, and isolate an account indefinitely. When an Admin/Owner runs `/unquarantine @user`, all their backed-up roles are automatically restored!\n"
             "• 🪓 **One-Click Raid Purge**: Use `/security purge_raid` to kick or ban a 50-bot raid wave in one click."
         )
     },

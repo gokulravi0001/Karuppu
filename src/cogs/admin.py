@@ -1935,6 +1935,30 @@ class SecurityAdmin(commands.GroupCog, name="security"):
         embed.set_footer(text=f"Requested by {interaction.user}")
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
+    @app_commands.command(name="quarantine", description="[Admins/Owner Only] Strip all roles and isolate a member indefinitely.")
+    @app_commands.describe(
+        member="The member to place into quarantine",
+        reason="Reason for placing member in quarantine (optional)"
+    )
+    async def cmd_quarantine(self, interaction: discord.Interaction, member: discord.Member, reason: Optional[str] = "Quarantined by staff"):
+        q_cog = self.bot.get_cog("quarantine")
+        if q_cog and hasattr(q_cog, "slash_quarantine"):
+            await q_cog.slash_quarantine(interaction, member=member, reason=reason)
+        else:
+            await interaction.response.send_message("❌ Quarantine system is currently unavailable.", ephemeral=True)
+
+    @app_commands.command(name="unquarantine", description="[Admins/Owner Only] Lift quarantine and restore all original roles to a user.")
+    @app_commands.describe(
+        user="The member or user to release from quarantine",
+        reason="Reason for lifting quarantine (optional)"
+    )
+    async def cmd_unquarantine(self, interaction: discord.Interaction, user: discord.User, reason: Optional[str] = "Quarantine lifted by staff"):
+        q_cog = self.bot.get_cog("quarantine")
+        if q_cog and hasattr(q_cog, "slash_unquarantine"):
+            await q_cog.slash_unquarantine(interaction, user=user, reason=reason)
+        else:
+            await interaction.response.send_message("❌ Quarantine system is currently unavailable.", ephemeral=True)
+
 
 class ShortCommands(commands.Cog):
     """Ultra-fast, short slash commands for daily Discord moderation."""

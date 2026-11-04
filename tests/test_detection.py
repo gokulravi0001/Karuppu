@@ -708,6 +708,49 @@ class TestQuarantineRoleRestoration(unittest.TestCase):
         self.assertIn(self.role_b, unq_roles)
         self.assertNotIn(self.guild.default_role, unq_roles)
 
+    def test_database_quarantine_saved_roles_no_empty_overwrite(self):
+        """Verify that ON CONFLICT DO UPDATE SET does not overwrite saved roles with empty list."""
+        import sqlite3
+        conn = sqlite3.connect(":memory:")
+        cursor = conn.cursor()
+        cursor.execute("""
+            CREATE TABLE quarantined_users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                guild_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                saved_role_ids TEXT NOT NULL,
+                quarantined_by INTEGER NOT NULL,
+                reason TEXT,
+                quarantined_at TEXT NOT NULL,
+                overwrites_backup TEXT,
+                UNIQUE(guild_id, user_id)
+            );
+        """)
+        # First save with roles
+        cursor.execute("""
+            INSERT INTO quarantined_users (guild_id, user_id, saved_role_ids, quarantined_by, reason, quarantined_at, overwrites_backup)
+            VALUES (1, 2, '[201, 202]', 99, 'Test', '2026-11-04', NULL);
+        """)
+        conn.commit()
+
+        # Second save attempt with empty roles list '[]' (e.g. from an event glitch)
+        cursor.execute("""
+            INSERT INTO quarantined_users (guild_id, user_id, saved_role_ids, quarantined_by, reason, quarantined_at, overwrites_backup)
+            VALUES (1, 2, '[]', 99, 'Glitch', '2026-11-04', NULL)
+            ON CONFLICT(guild_id, user_id) DO UPDATE SET
+                saved_role_ids = CASE
+                    WHEN excluded.saved_role_ids != '[]' THEN excluded.saved_role_ids
+                    ELSE quarantined_users.saved_role_ids
+                END;
+        """)
+        conn.commit()
+
+        cursor.execute("SELECT saved_role_ids FROM quarantined_users WHERE guild_id = 1 AND user_id = 2")
+        result = cursor.fetchone()[0]
+        # Must retain original roles!
+        self.assertEqual(result, '[201, 202]')
+        conn.close()
+
 
 class TestLogChannelRenamingAndSuiteUpdates(unittest.TestCase):
     def setUp(self):

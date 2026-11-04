@@ -534,11 +534,14 @@ class AuditDatabase:
                     guild_id, user_id, saved_role_ids, quarantined_by, reason, quarantined_at, overwrites_backup
                 ) VALUES (?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(guild_id, user_id) DO UPDATE SET
-                    saved_role_ids = excluded.saved_role_ids,
+                    saved_role_ids = CASE
+                        WHEN excluded.saved_role_ids != '[]' THEN excluded.saved_role_ids
+                        ELSE quarantined_users.saved_role_ids
+                    END,
                     quarantined_by = excluded.quarantined_by,
                     reason = excluded.reason,
                     quarantined_at = excluded.quarantined_at,
-                    overwrites_backup = excluded.overwrites_backup;
+                    overwrites_backup = COALESCE(excluded.overwrites_backup, quarantined_users.overwrites_backup);
             """, (guild_id, user_id, roles_json, quarantined_by, reason or "Quarantined by staff", now_iso, overwrites_backup))
             await db.commit()
 
@@ -571,6 +574,33 @@ class AuditDatabase:
                 )
                 await db.commit()
         return data
+
+    async def get_quarantine_incident_roles(self, guild_id: int, user_id: int) -> List[str]:
+        """Finds role names stripped during quarantine from the audit incident log history."""
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                """
+                SELECT raw_evidence FROM incidents
+                WHERE guild_id = ? AND user_id = ? AND rule_triggered = 'Member Quarantine'
+                ORDER BY timestamp DESC LIMIT 5
+                """,
+                (guild_id, user_id)
+            ) as cursor:
+                rows = await cursor.fetchall()
+                for r in rows:
+                    raw = r["raw_evidence"] if r else ""
+                    if "Roles stripped" in raw and ":" in raw:
+                        try:
+                            after_colon = raw.split(":", 1)[1]
+                            role_part = after_colon.split("|", 1)[0].strip()
+                            if role_part and role_part.lower() != "none":
+                                names = [n.strip() for n in role_part.split(",") if n.strip()]
+                                if names:
+                                    return names
+                        except Exception:
+                            pass
+        return []
 
     async def get_all_quarantined(self, guild_id: Optional[int] = None) -> List[Dict[str, Any]]:
         """Retrieves all active quarantined members."""

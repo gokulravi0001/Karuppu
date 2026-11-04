@@ -278,20 +278,19 @@ class SecurityBot(commands.Bot):
                 logger.warning("Could not sync commands to guild '%s': %s", guild.name, se)
 
         # 3. Auto-discover and bind existing log channels for all guilds
-        from src.cogs.admin import FULL_LOG_CHANNELS
+        from src.cogs.admin import FULL_LOG_CHANNELS, matches_log_channel
         for guild in self.guilds:
             try:
                 discovered = 0
                 for cat in guild.categories:
                     cat_lower = cat.name.lower()
-                    if "log" in cat_lower or "𝚲" in cat.name or "security" in cat_lower:
+                    if "server logs" in cat_lower or "log" in cat_lower or "𝚲" in cat.name or "security" in cat_lower:
                         for ch in cat.text_channels:
-                            cname = ch.name.lower()
                             for ch_key, _ in FULL_LOG_CHANNELS:
-                                formatted_key = ch_key.replace("_", "-")
-                                if (formatted_key in cname or ch_key in cname) and (guild.id, ch_key) not in bot_config.guild_log_channels_cache:
-                                    bot_config.guild_log_channels_cache[(guild.id, ch_key)] = ch.id
-                                    discovered += 1
+                                if (guild.id, ch_key) not in bot_config.guild_log_channels_cache:
+                                    if matches_log_channel(ch.name, ch_key):
+                                        bot_config.guild_log_channels_cache[(guild.id, ch_key)] = ch.id
+                                        discovered += 1
                 if discovered > 0:
                     logger.info("Auto-discovered %d existing log channels in guild '%s' (%d)", discovered, guild.name, guild.id)
             except Exception as disc_err:

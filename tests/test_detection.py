@@ -692,5 +692,80 @@ class TestQuarantineRoleRestoration(unittest.TestCase):
         self.assertNotIn(self.guild.default_role, unq_roles)
 
 
+class TestLogChannelRenamingAndSuiteUpdates(unittest.TestCase):
+    def setUp(self):
+        from src.cogs.admin import LOG_CHANNEL_CONFIG, FULL_LOG_CHANNELS, matches_log_channel
+        self.config = LOG_CHANNEL_CONFIG
+        self.full_logs = FULL_LOG_CHANNELS
+        self.matches_fn = matches_log_channel
+
+    def test_all_channels_have_log_prefix(self):
+        """Verify all 32 channels are defined and all target channel names start with 'log-'."""
+        self.assertEqual(len(self.config), 32)
+        self.assertEqual(len(self.full_logs), 32)
+        for key, (target_name, topic, aliases) in self.config.items():
+            self.assertTrue(target_name.startswith("log-"), f"Channel '{key}' target name '{target_name}' must start with 'log-'")
+            self.assertTrue(len(topic) > 0)
+            self.assertTrue(isinstance(aliases, list))
+
+    def test_smart_matching_legacy_and_new_channels(self):
+        """Verify matches_log_channel detects legacy . 𝚲 · <name> . channels and new log-<name> channels."""
+        # Legacy formats
+        self.assertTrue(self.matches_fn(". 𝚲 · message .", "message"))
+        self.assertTrue(self.matches_fn(". 𝚲 · vc-state .", "vc_state"))
+        self.assertTrue(self.matches_fn(". 𝚲 · misuse .", "misuse"))
+        self.assertTrue(self.matches_fn(". 𝚲 · antinuke .", "antinuke"))
+        self.assertTrue(self.matches_fn(". 𝚲 · relationship .", "relationship"))
+
+        # New formats with log- prefix
+        self.assertTrue(self.matches_fn("log-messages", "message"))
+        self.assertTrue(self.matches_fn("log-vc-status", "vc_state"))
+        self.assertTrue(self.matches_fn("log-spam", "misuse"))
+        self.assertTrue(self.matches_fn("log-antinuke", "antinuke"))
+        self.assertTrue(self.matches_fn("log-integrations", "relationship"))
+        self.assertTrue(self.matches_fn("log-moderation", "mod"))
+
+        # False positive rejections
+        self.assertFalse(self.matches_fn("general-chat", "message"))
+        self.assertFalse(self.matches_fn("announcements", "announcement"))
+        self.assertFalse(self.matches_fn("general", "server"))
+
+    def test_channel_renaming_simulation(self):
+        """Verify that existing legacy channels are detected for in-place rename without creating duplicates."""
+        existing_channels = [
+            MagicMock(name="Legacy Message", id=101, topic="Old")
+        ]
+        existing_channels[0].name = ". 𝚲 · message ."
+        existing_channels.append(MagicMock(name="Legacy Mod", id=102, topic="Old"))
+        existing_channels[1].name = ". 𝚲 · mod ."
+
+        claimed_ids = set()
+        renamed = []
+        created = []
+
+        for ch_key, ch_topic in self.full_logs:
+            target_name, _, _ = self.config[ch_key]
+            matched_ch = None
+            for ech in existing_channels:
+                if ech.id not in claimed_ids and self.matches_fn(ech.name, ch_key):
+                    matched_ch = ech
+                    break
+
+            if matched_ch:
+                claimed_ids.add(matched_ch.id)
+                if matched_ch.name != target_name:
+                    renamed.append((matched_ch.name, target_name))
+            else:
+                created.append(target_name)
+
+        # ch1 and ch2 were matched and scheduled for rename to log-messages and log-moderation
+        self.assertEqual(len(renamed), 2)
+        self.assertEqual(renamed[0], (". 𝚲 · message .", "log-messages"))
+        self.assertEqual(renamed[1], (". 𝚲 · mod .", "log-moderation"))
+        # 30 new channels created (32 total - 2 matched & renamed)
+        self.assertEqual(len(created), 30)
+        self.assertEqual(len(claimed_ids), 2)
+
+
 if __name__ == "__main__":
     unittest.main()

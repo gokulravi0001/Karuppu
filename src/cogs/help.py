@@ -118,7 +118,7 @@ HELP_PAGES = {
             "### 📁 7. Server Logs (`#📁・𝘀𝗲𝗿𝘃𝗲𝗿-𝗹𝗼𝗴𝘀`)\n"
             "• Channel and Role creations, deletions, and permission modifications.\n\n"
             "### ⚡ 1-Click Setup Suites\n"
-            "• `/logs [prefix] [allowed_role]` or `/security setup_full_suite` — **Ultimate 28-Channel Logging Suite**! Auto-creates private category `𝚲 Logs` with dedicated channels styled as `. 𝚲 · <type> .` (`antinuke`, `message`, `mod`, `kick`, `timeout`, `verify`, `whitelist`, `security`, `server`, `role` [tracks who gave/removed roles to/from whom], `file`, `voice`, `soundboard`, `vc-state`, `member`, `channel`, `invite`, `ticket`, `admin`, `boost`, `raid`, `misuse`, `ban`, `joins`, `leaves`, `presence`, `automod`, `relationship`).\n"
+            "• `/logs [allowed_role]` or `!logs` — **Ultimate 32-Channel Logging Suite**! Auto-creates/updates private category `📁 Server Logs` with dedicated channels styled as `log-<name>` (`log-messages`, `log-moderation`, `log-bans`, `log-voice`, `log-vc-status`, etc.). Renames existing channels in-place without duplicating!\n"
             "• `/security auto_setup` — Standard 7-channel security suite (`alerts` + `chat`, `voice`, `vc_state`, `member`, `mod`, `server`)."
         )
     },
@@ -127,7 +127,7 @@ HELP_PAGES = {
         "color": discord.Color.teal(),
         "description": (
             "### ⚡ Ultra-Fast Short Commands (Top-Level)\n"
-            "• `/logs [prefix] [role]` — 1-Click 28-channel suite with `𝚲`!\n"
+            "• `/logs [role]` or `!logs` — 1-Click 32-channel suite with `log-` prefix!\n"
             "• `/vcban <member> [reason] [hours]` — Ban member from voice.\n"
             "• `/vcunban <user> [reason]` — Unban member from voice.\n"
             "• `/vckick <member> [reason]` — Disconnect member from voice.\n"

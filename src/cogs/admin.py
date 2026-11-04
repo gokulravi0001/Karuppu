@@ -61,40 +61,215 @@ class RaidPurgeConfirmView(discord.ui.View):
         await interaction.response.send_message("Purge cancelled.", ephemeral=True)
 
 
-FULL_LOG_CHANNELS = [
-    ("antinuke", "Anti-nuke: mass ban/kick, mass channel/role wipe detections"),
-    ("message", "Message edits & deletions with attachment names and before/after comparisons"),
-    ("mod", "General moderation actions, warnings and staff notes"),
-    ("kick", "Member kick logs: who kicked whom with reasons and roles held"),
-    ("ban", "Server bans, unbans, voice channel bans and voice unbans"),
-    ("timeout", "Member timeout & untimeout logs: who timed out whom with durations and reasons"),
-    ("voice", "Voice moderation: joins, leaves, moves, server mute/unmute and server deafen/undeafen"),
-    ("vc_state", "Detailed member VC states: self-mute, self-deafen, webcam camera and screen share"),
-    ("soundboard", "Soundboard audio playback logs: audio name, sound ID and volume"),
-    ("stage", "Stage channel & stage instance events: speaker requests, topics, stage open/close"),
-    ("event", "Scheduled server events: creations, updates, cancellations, start & end"),
-    ("announcement", "Announcement & news channel publishes, crossposts and channel changes"),
-    ("role", "Role creations, deletions, edits/renames, and who gave or removed roles to/from members"),
-    ("channel", "Channel creations, deletions, renames, topic edits, slowmode and permission overwrites"),
-    ("server", "Server modifications: name, icon, banner, vanity URL, AFK and settings"),
-    ("member", "Member profile updates: nickname changes, avatars and moderation status"),
-    ("joins", "Member joins with exact account age and <24h new account security flags"),
-    ("leaves", "Member leaves with duration spent in server and roles held"),
-    ("emoji", "Server emojis & stickers: creations, renames, deletions"),
-    ("verify", "Verification events & level reward role unlocks"),
-    ("whitelist", "Owner-authorized bypass and whitelist additions / removals"),
-    ("security", "Security alerts, mode toggles, quarantine actions and Voice Guard status"),
-    ("file", "Scanned uploads, malicious attachments blocked and archive gates"),
-    ("invite", "Invite creations, deletions, vanity links and invite link tracking"),
-    ("ticket", "Ticket support logs: ticket creations, closures and staff assignments"),
-    ("admin", "Administrative operations, security bot setup and lockdown executions"),
-    ("boost", "Server boost events, booster milestones and server boost tier upgrades"),
-    ("raid", "Raid velocity tracking, raid bursts, lockdown containment & raid purges"),
-    ("misuse", "Spam ceiling hits (10-message limit), rate limit violations & ping abuse"),
-    ("presence", "Member activity, streaming broadcasts and custom status"),
-    ("automod", "AutoMod detections: phishing domains, scam links, zalgo text sanitizations"),
-    ("relationship", "Server integrations, bot additions and webhook creations/deletions")
-]
+# Granular 32-channel logging suite configuration:
+# key: (target_channel_name, topic_description, [smart_match_aliases])
+LOG_CHANNEL_CONFIG = {
+    "antinuke": (
+        "log-antinuke",
+        "Anti-nuke: mass ban/kick, mass channel/role wipe detections",
+        ["antinuke", "anti-nuke", "nuke"]
+    ),
+    "message": (
+        "log-messages",
+        "Message edits & deletions with attachment names and before/after comparisons",
+        ["message", "messages", "chat", "msg"]
+    ),
+    "mod": (
+        "log-moderation",
+        "General moderation actions, warnings and staff notes",
+        ["mod", "moderation", "mod-logs", "modlogs"]
+    ),
+    "kick": (
+        "log-kicks",
+        "Member kick logs: who kicked whom with reasons and roles held",
+        ["kick", "kicks"]
+    ),
+    "ban": (
+        "log-bans",
+        "Server bans, unbans, voice channel bans and voice unbans",
+        ["ban", "bans", "unban"]
+    ),
+    "timeout": (
+        "log-timeouts",
+        "Member timeout & untimeout logs: who timed out whom with durations and reasons",
+        ["timeout", "timeouts", "mute", "mutes"]
+    ),
+    "voice": (
+        "log-voice",
+        "Voice moderation: joins, leaves, moves, server mute/unmute and server deafen/undeafen",
+        ["voice", "vc", "voice-log", "voicelog"]
+    ),
+    "vc_state": (
+        "log-vc-status",
+        "Detailed member VC states: self-mute, self-deafen, webcam camera and screen share",
+        ["vc_state", "vc-state", "vc-status", "vcstatus", "state"]
+    ),
+    "soundboard": (
+        "log-soundboard",
+        "Soundboard audio playback logs: audio name, sound ID and volume",
+        ["soundboard", "sounds", "sound"]
+    ),
+    "stage": (
+        "log-stage",
+        "Stage channel & stage instance events: speaker requests, topics, stage open/close",
+        ["stage", "stages"]
+    ),
+    "event": (
+        "log-events",
+        "Scheduled server events: creations, updates, cancellations, start & end",
+        ["event", "events", "scheduled"]
+    ),
+    "announcement": (
+        "log-announcements",
+        "Announcement & news channel publishes, crossposts and channel changes",
+        ["announcement", "announcements", "news"]
+    ),
+    "role": (
+        "log-roles",
+        "Role creations, deletions, edits/renames, and who gave or removed roles to/from members",
+        ["role", "roles"]
+    ),
+    "channel": (
+        "log-channels",
+        "Channel creations, deletions, renames, topic edits, slowmode and permission overwrites",
+        ["channel", "channels"]
+    ),
+    "server": (
+        "log-server",
+        "Server modifications: name, icon, banner, vanity URL, AFK and settings",
+        ["server", "guild"]
+    ),
+    "member": (
+        "log-members",
+        "Member profile updates: nickname changes, avatars and moderation status",
+        ["member", "members", "user", "users"]
+    ),
+    "joins": (
+        "log-joins",
+        "Member joins with exact account age and <24h new account security flags",
+        ["join", "joins", "welcome"]
+    ),
+    "leaves": (
+        "log-leaves",
+        "Member leaves with duration spent in server and roles held",
+        ["leave", "leaves"]
+    ),
+    "emoji": (
+        "log-emojis",
+        "Server emojis & stickers: creations, renames, deletions",
+        ["emoji", "emojis", "sticker", "stickers"]
+    ),
+    "verify": (
+        "log-verification",
+        "Verification events & level reward role unlocks",
+        ["verify", "verification"]
+    ),
+    "whitelist": (
+        "log-whitelist",
+        "Owner-authorized bypass and whitelist additions / removals",
+        ["whitelist", "bypass"]
+    ),
+    "security": (
+        "log-security",
+        "Security alerts, mode toggles, quarantine actions and Voice Guard status",
+        ["security", "alert", "alerts", "guard"]
+    ),
+    "file": (
+        "log-files",
+        "Scanned uploads, malicious attachments blocked and archive gates",
+        ["file", "files", "attachment", "attachments"]
+    ),
+    "invite": (
+        "log-invites",
+        "Invite creations, deletions, vanity links and invite link tracking",
+        ["invite", "invites"]
+    ),
+    "ticket": (
+        "log-tickets",
+        "Ticket support logs: ticket creations, closures and staff assignments",
+        ["ticket", "tickets"]
+    ),
+    "admin": (
+        "log-admin",
+        "Administrative operations, security bot setup and lockdown executions",
+        ["admin", "audit"]
+    ),
+    "boost": (
+        "log-boosts",
+        "Server boost events, booster milestones and server boost tier upgrades",
+        ["boost", "boosts", "nitro"]
+    ),
+    "raid": (
+        "log-raids",
+        "Raid velocity tracking, raid bursts, lockdown containment & raid purges",
+        ["raid", "raids", "anti-raid"]
+    ),
+    "misuse": (
+        "log-spam",
+        "Spam ceiling hits (10-message limit), rate limit violations & ping abuse",
+        ["misuse", "spam"]
+    ),
+    "presence": (
+        "log-presence",
+        "Member activity, streaming broadcasts and custom status",
+        ["presence", "activity", "status"]
+    ),
+    "automod": (
+        "log-automod",
+        "AutoMod detections: phishing domains, scam links, zalgo text sanitizations",
+        ["automod", "auto-mod", "filters"]
+    ),
+    "relationship": (
+        "log-integrations",
+        "Server integrations, bot additions and webhook creations/deletions",
+        ["relationship", "integration", "integrations", "webhook", "webhooks"]
+    ),
+}
+
+FULL_LOG_CHANNELS = [(k, v[1]) for k, v in LOG_CHANNEL_CONFIG.items()]
+
+
+def matches_log_channel(channel_name: str, ch_key: str) -> bool:
+    """Smart matching for existing log channels across legacy (. 𝚲 · <key> .), standard (log-<name>), and custom formats."""
+    cname = channel_name.lower().strip()
+    config = LOG_CHANNEL_CONFIG.get(ch_key)
+    if not config:
+        formatted = ch_key.replace("_", "-")
+        return formatted in cname or ch_key in cname
+
+    target_name, _, aliases = config
+
+    # 1. Exact match with new target name (e.g. "log-messages")
+    if cname == target_name or cname == target_name.replace("-", "_"):
+        return True
+
+    # 2. Contains full target name (e.g. "🔒-log-messages")
+    if target_name in cname:
+        return True
+
+    formatted = ch_key.replace("_", "-")
+
+    # 3. Legacy bot format: contains 𝚲 and (formatted or alias)
+    if "𝚲" in channel_name:
+        if formatted in cname or ch_key in cname:
+            return True
+        for alias in aliases:
+            if alias in cname:
+                return True
+
+    # 4. Standard slug formats: e.g. "log-mod", "log-message", "mod-log", "message-log"
+    if "log" in cname:
+        if formatted in cname or ch_key in cname:
+            return True
+        for alias in aliases:
+            if f"log-{alias}" in cname or f"{alias}-log" in cname or f"log_{alias}" in cname or f"{alias}_log" in cname or f"· {alias}" in cname:
+                return True
+
+    # 5. Exact key match (e.g. channel named "message" or "messages" or "antinuke")
+    if cname == formatted or cname == ch_key:
+        return True
+
+    return False
 
 async def log_channel_autocomplete_fn(
     interaction: discord.Interaction,
@@ -1172,15 +1347,24 @@ class SecurityAdmin(commands.GroupCog, name="security"):
     async def _execute_setup_full_suite(
         self,
         guild: discord.Guild,
-        prefix: str = "𝚲",
-        allowed_role: Optional[discord.Role] = None
+        prefix: Optional[str] = None,
+        allowed_role: Optional[discord.Role] = None,
+        category_name: Optional[str] = None
     ) -> Tuple[bool, str, Optional[discord.CategoryChannel], int, Optional[discord.Embed]]:
-        """Core worker that creates the private category and all 32 dedicated action channels."""
+        """Sets up or updates the full 32-channel logging suite with log- prefix channels.
+        Renames existing channels to the new format instead of creating duplicates.
+        """
         me = guild.me
         if not me.guild_permissions.manage_channels:
             return False, "Bot lacks the 'Manage Channels' permission.", None, 0, None
 
-        clean_prefix = (prefix or "𝚲").strip()
+        # Determine target category name
+        if category_name:
+            target_category_name = category_name.strip()
+        elif prefix and prefix.strip() not in ["𝚲", ""]:
+            target_category_name = f"📁 {prefix.strip()} Server Logs"
+        else:
+            target_category_name = "📁 Server Logs"
 
         # 1. Base Overwrites: Hidden completely from @everyone
         overwrites = {
@@ -1202,59 +1386,98 @@ class SecurityAdmin(commands.GroupCog, name="security"):
         if allowed_role:
             overwrites[allowed_role] = discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True)
 
-        category_name = f"{clean_prefix} Logs"
-
         try:
             # Check if category already exists; if not, create it
             category = None
             for cat in guild.categories:
                 cname = cat.name.lower()
-                if cname == category_name.lower() or (clean_prefix.lower() in cname and "log" in cname):
+                if (
+                    cname == target_category_name.lower()
+                    or "server logs" in cname
+                    or "𝚲 logs" in cname
+                    or "log" in cname
+                    or "𝚲" in cat.name
+                ):
                     category = cat
                     break
 
             if category:
                 try:
-                    await category.edit(overwrites=overwrites)
-                except Exception:
-                    pass
+                    if "𝚲" in category.name or category.name.lower() in ["logs", "server logs", "𝚲 logs"]:
+                        await category.edit(name=target_category_name, overwrites=overwrites)
+                    else:
+                        await category.edit(overwrites=overwrites)
+                except Exception as cat_err:
+                    logger.warning("Could not update category %s: %s", category.name, cat_err)
             else:
-                category = await guild.create_category(category_name, overwrites=overwrites, reason="Automated 32-channel logging suite setup")
+                category = await guild.create_category(target_category_name, overwrites=overwrites, reason="Automated 32-channel logging suite setup")
 
             created_channels = {}
             db_map = {}
             cat_channels = list(category.text_channels)
+            guild_channels = list(guild.text_channels)
+            claimed_channel_ids = set()
+            renamed_count = 0
+            created_count = 0
 
             for ch_key, ch_topic in self.FULL_LOG_CHANNELS:
-                formatted_key = ch_key.replace('_', '-')
-                ch_name = f". {clean_prefix} · {formatted_key} ."
+                config = LOG_CHANNEL_CONFIG.get(ch_key, (f"log-{ch_key.replace('_', '-')}", ch_topic, [ch_key]))
+                target_name = config[0]
 
-                # Smart match against existing channels inside the category
+                # 1. Check if already bound in cache
                 ch = None
-                for existing_ch in cat_channels:
-                    cname = existing_ch.name.lower()
-                    if formatted_key in cname or ch_key in cname:
-                        ch = existing_ch
-                        break
+                cached_id = bot_config.get_log_channel_id(guild.id, ch_key)
+                if cached_id and cached_id not in claimed_channel_ids:
+                    cached_ch = guild.get_channel(cached_id)
+                    if isinstance(cached_ch, discord.TextChannel):
+                        ch = cached_ch
 
+                # 2. Smart match against existing channels inside the category
                 if not ch:
+                    for existing_ch in cat_channels:
+                        if existing_ch.id not in claimed_channel_ids and matches_log_channel(existing_ch.name, ch_key):
+                            ch = existing_ch
+                            break
+
+                # 3. Smart match across all guild text channels
+                if not ch:
+                    for existing_ch in guild_channels:
+                        if existing_ch.id not in claimed_channel_ids and matches_log_channel(existing_ch.name, ch_key):
+                            ch = existing_ch
+                            break
+
+                if ch:
+                    claimed_channel_ids.add(ch.id)
+                    # Channel exists! Rename & update if needed
+                    edit_kwargs = {}
+                    if ch.name != target_name:
+                        edit_kwargs["name"] = target_name
+                    if ch.topic != ch_topic:
+                        edit_kwargs["topic"] = ch_topic
+                    if ch.category_id != category.id:
+                        edit_kwargs["category"] = category
+
+                    if edit_kwargs:
+                        try:
+                            await ch.edit(**edit_kwargs)
+                            renamed_count += 1
+                            await asyncio.sleep(0.35)
+                        except Exception as edit_err:
+                            logger.warning("Could not rename/move channel %s (%s): %s", ch.name, ch_key, edit_err)
+                else:
+                    # Missing channel, create fresh with target_name
                     try:
                         ch = await guild.create_text_channel(
-                            ch_name,
+                            target_name,
                             category=category,
                             topic=ch_topic,
                             reason=f"Automated logging suite setup ({ch_key})"
                         )
-                        # Brief pause between creates to avoid hitting Discord channel rate limits
+                        created_count += 1
+                        claimed_channel_ids.add(ch.id)
                         await asyncio.sleep(0.35)
                     except Exception as create_err:
-                        logger.warning("Could not create channel %s: %s", ch_name, create_err)
-                else:
-                    if not ch.topic or ch.topic != ch_topic:
-                        try:
-                            await ch.edit(topic=ch_topic)
-                        except Exception:
-                            pass
+                        logger.warning("Could not create channel %s: %s", target_name, create_err)
 
                 if ch:
                     created_channels[ch_key] = ch
@@ -1285,45 +1508,50 @@ class SecurityAdmin(commands.GroupCog, name="security"):
                 bot_config.guild_settings_cache[guild.id]["alert_channel_id"] = sec_ch_id
 
             # Post Welcome & Orientation card in the security log channel
-            welcome_target = created_channels.get("security") or created_channels.get("mod") or list(created_channels.values())[0]
+            welcome_target = created_channels.get("security") or created_channels.get("mod") or (list(created_channels.values())[0] if created_channels else None)
             total_count = len(self.FULL_LOG_CHANNELS)
-            welcome_embed = discord.Embed(
-                title=f"𓆩『 {clean_prefix.upper()} LOGGING SUITE ACTIVE 』𓆪",
-                color=discord.Color.from_rgb(88, 101, 242),
-                description=(
-                    f"Welcome to the **{clean_prefix} Logging Suite** for **{guild.name}**!\n\n"
-                    f"All **{total_count} dedicated security log channels** are active, locked, and auto-bound to Karuppu's audit engine.\n\n"
-                    f"🔒 **Visibility:** Hidden from `@everyone` • Authorized Staff Only\n"
-                    f"⚡ **Active Channels:** `{total_count}/{total_count}` Channels Online\n"
-                    f"🛡️ **Complete Coverage:** Voice, Text, Stage, Events, Announcements, Roles, Server & Moderation."
-                ),
-                timestamp=datetime.now(timezone.utc)
-            )
-            welcome_embed.set_footer(text="Karuppu Security & Audit Suite")
-            try:
-                await welcome_target.send(embed=welcome_embed)
-            except Exception:
-                pass
+            if welcome_target:
+                welcome_embed = discord.Embed(
+                    title="𓆩『 SERVER LOGGING SUITE ACTIVE 』𓆪",
+                    color=discord.Color.from_rgb(88, 101, 242),
+                    description=(
+                        f"Welcome to the **Server Logging Suite** for **{guild.name}**!\n\n"
+                        f"All **{total_count} dedicated security log channels** are active, locked, and auto-bound to Karuppu's audit engine.\n\n"
+                        f"🔒 **Visibility:** Hidden from `@everyone` • Authorized Staff Only\n"
+                        f"⚡ **Active Channels:** `{len(created_channels)}/{total_count}` Channels Online\n"
+                        f"🏷️ **Channel Format:** `log-<name>` (Standardized Clean Slugs)\n"
+                        f"🛡️ **Complete Coverage:** Voice, VC Status, Text, Stage, Events, Announcements, Roles, Server & Moderation."
+                    ),
+                    timestamp=datetime.now(timezone.utc)
+                )
+                welcome_embed.set_footer(text="Karuppu Security & Audit Suite")
+                try:
+                    await welcome_target.send(embed=welcome_embed)
+                except Exception:
+                    pass
 
             # Summary to moderator
             reply_embed = discord.Embed(
-                title=f"🎉 Complete {total_count}-Channel Logging Suite Configured!",
+                title=f"🎉 Complete {total_count}-Channel Logging Suite Updated!",
                 color=discord.Color.green(),
                 description=(
-                    f"Successfully configured private category **`{category.name}`** with all {total_count} dedicated action channels!\n\n"
+                    f"Successfully updated logging suite in category **`{category.name}`**!\n\n"
                     f"• **Category:** `{category.name}`\n"
-                    f"• **Channel Pattern:** `🔒 . {clean_prefix} · <type> .`\n"
-                    f"• **Total Channels:** **{total_count}** active channels\n"
-                    f"• **Coverage:** VC, Text, Stage, Events, Announcements, Kicks, Bans, Timeouts, Role changes (who gave/removed), Emojis, and Server changes\n"
-                    f"• **Access:** Server Administrators & allowed staff roles only.\n"
-                    f"• **Auto-Binding:** 100% connected & routed\n\n"
-                    f"*(View your channel list to see all {total_count} channels organized cleanly under `{category.name}`!)*"
-                )
+                    f"• **Channel Naming:** `log-<name>` (Standardized Clean Slugs)\n"
+                    f"• **Channels Renamed/Updated:** **{renamed_count}** existing channels updated\n"
+                    f"• **Channels Created:** **{created_count}** new channels created\n"
+                    f"• **Total Active Channels:** **{len(created_channels)}/{total_count}** online\n"
+                    f"• **Coverage:** VC, VC Status, Text, Stage, Events, Announcements, Kicks, Bans, Timeouts, Roles, Emojis & Server changes\n"
+                    f"• **Access:** Server Administrators & allowed staff roles only\n"
+                    f"• **Auto-Binding:** 100% connected & routed to database & audit engine\n\n"
+                    f"*(All channels are organized cleanly under `{category.name}`!)*"
+                ),
+                timestamp=datetime.now(timezone.utc)
             )
             if allowed_role:
                 reply_embed.add_field(name="Extra Staff Role Granted", value=allowed_role.mention, inline=False)
 
-            return True, "", category, total_count, reply_embed
+            return True, "", category, len(created_channels), reply_embed
         except Exception as e:
             logger.exception("Failed _execute_setup_full_suite: %s", e)
             return False, str(e), None, 0, None
@@ -1331,49 +1559,50 @@ class SecurityAdmin(commands.GroupCog, name="security"):
     async def sync_existing_log_channels(
         self,
         guild: discord.Guild,
-        prefix: str = "𝚲"
+        prefix: Optional[str] = None
     ) -> Tuple[int, Optional[discord.CategoryChannel], Dict[str, discord.TextChannel], List[str]]:
         """100% Read-Only / Zero-Creation Sync:
         Binds existing Discord log channels to Karuppu's audit cache and SQLite database without creating any categories or channels.
         """
-        clean_prefix = (prefix or "𝚲").strip()
-        category_name = f"{clean_prefix} Logs"
-
-        # 1. Locate existing log category
         category = None
         for cat in guild.categories:
             cname = cat.name.lower()
-            if cname == category_name.lower() or (clean_prefix.lower() in cname and "log" in cname) or "log" in cname or "𝚲" in cat.name:
+            if "server logs" in cname or "𝚲 logs" in cname or "log" in cname or "𝚲" in cat.name or "security" in cname:
                 category = cat
                 break
 
-        # Channels to inspect: category text channels if category found, else all guild text channels
         channels_to_inspect = list(category.text_channels) if category else list(guild.text_channels)
-
         bound_channels = {}
         db_map = {}
         missing = []
+        claimed_ids = set()
 
         for ch_key, ch_topic in self.FULL_LOG_CHANNELS:
-            formatted_key = ch_key.replace("_", "-")
             matched_ch = None
 
-            # First priority: check inside the detected category
-            for ch in channels_to_inspect:
-                cname = ch.name.lower()
-                if formatted_key in cname or ch_key in cname:
-                    matched_ch = ch
-                    break
+            # 1. Try cached ID first
+            cached_id = bot_config.get_log_channel_id(guild.id, ch_key)
+            if cached_id and cached_id not in claimed_ids:
+                cached_ch = guild.get_channel(cached_id)
+                if isinstance(cached_ch, discord.TextChannel):
+                    matched_ch = cached_ch
 
-            # Second priority: fallback across all guild text channels
+            # 2. Check inside detected category
+            if not matched_ch:
+                for ch in channels_to_inspect:
+                    if ch.id not in claimed_ids and matches_log_channel(ch.name, ch_key):
+                        matched_ch = ch
+                        break
+
+            # 3. Fallback across all guild text channels
             if not matched_ch and category:
                 for ch in guild.text_channels:
-                    cname = ch.name.lower()
-                    if cname.endswith(f"-{formatted_key}") or cname.endswith(f"-{ch_key}") or f"-{formatted_key}-" in cname or cname == formatted_key or cname == ch_key:
+                    if ch.id not in claimed_ids and matches_log_channel(ch.name, ch_key):
                         matched_ch = ch
                         break
 
             if matched_ch:
+                claimed_ids.add(matched_ch.id)
                 bound_channels[ch_key] = matched_ch
                 db_map[ch_key] = matched_ch.id
                 bot_config.guild_log_channels_cache[(guild.id, ch_key)] = matched_ch.id
@@ -1400,7 +1629,7 @@ class SecurityAdmin(commands.GroupCog, name="security"):
         return len(bound_channels), category, bound_channels, missing
 
     @commands.command(name="logsync", aliases=["synclogs", "sync_logs", "log_sync"])
-    async def msg_cmd_logsync(self, ctx: commands.Context, prefix: str = "𝚲"):
+    async def msg_cmd_logsync(self, ctx: commands.Context, *, args: Optional[str] = None):
         """Prefix command (!logsync or !log sync) that binds existing channels without creating new ones."""
         is_allowed = (
             ctx.author.id == ctx.guild.owner_id or
@@ -1413,7 +1642,7 @@ class SecurityAdmin(commands.GroupCog, name="security"):
             return
 
         status_msg = await ctx.reply("🔄 **Scanning existing server channels and binding log routes (Zero creation mode)...**")
-        count, category, bound, missing = await self.sync_existing_log_channels(ctx.guild, prefix=prefix)
+        count, category, bound, missing = await self.sync_existing_log_channels(ctx.guild)
         total = len(self.FULL_LOG_CHANNELS)
         cat_desc = f"`{category.name}`" if category else "*Server Text Channels (No category)*"
         embed = discord.Embed(
@@ -1436,8 +1665,8 @@ class SecurityAdmin(commands.GroupCog, name="security"):
 
     @commands.command(name="logs", aliases=["setup_logs", "setuplogs", "setup"])
     @commands.has_permissions(administrator=True)
-    async def msg_cmd_logs(self, ctx: commands.Context, prefix: str = "𝚲"):
-        """Prefix command (!logs or !setup) to create all 32 logging channels in a single command."""
+    async def msg_cmd_logs(self, ctx: commands.Context, *, args: Optional[str] = None):
+        """Prefix command (!logs or !setup) to update or create all 32 logging channels with log- prefix."""
         is_allowed = (
             ctx.author.id == ctx.guild.owner_id or
             ctx.author.guild_permissions.administrator or
@@ -1445,23 +1674,24 @@ class SecurityAdmin(commands.GroupCog, name="security"):
             ctx.author.guild_permissions.moderate_members
         )
         if not is_allowed:
-            await ctx.reply("❌ Administrator or Moderator permissions required to set up logs.")
+            await ctx.reply("❌ Administrator or Moderator permissions required to set up/update logs.")
             return
 
-        status_msg = await ctx.reply("⚙️ **Creating private log category and all 32 dedicated log channels... Please wait a few seconds!**")
-        success, err, category, count, embed = await self._execute_setup_full_suite(ctx.guild, prefix=prefix)
+        status_msg = await ctx.reply("⚙️ **Updating & syncing all 32 dedicated log channels with `log-` prefix... Please wait a few seconds!**")
+        success, err, category, count, embed = await self._execute_setup_full_suite(ctx.guild)
         if success and embed:
-            await status_msg.edit(content=f"✅ **Category `{category.name}` & all {count} channels created!**", embed=embed)
+            cat_name = category.name if category else "Server Logs"
+            await status_msg.edit(content=f"✅ **Logging suite in `{cat_name}` updated! ({count}/32 channels ready)**", embed=embed)
         else:
-            await status_msg.edit(content=f"❌ Failed creating logging suite: `{err}`")
+            await status_msg.edit(content=f"❌ Failed creating/updating logging suite: `{err}`")
 
     async def _handle_setup_full_suite(
         self,
         interaction: discord.Interaction,
-        prefix: Optional[str] = "𝚲",
+        prefix: Optional[str] = None,
         allowed_role: Optional[discord.Role] = None
     ):
-        """Worker that defers interaction, performs permission checks, and triggers category/channel generation."""
+        """Worker that defers interaction, performs permission checks, and triggers category/channel generation or updates."""
         # Defer immediately so Discord never times out
         await interaction.response.defer(ephemeral=True)
 
@@ -1476,7 +1706,7 @@ class SecurityAdmin(commands.GroupCog, name="security"):
 
         me = guild.me
         if not me.guild_permissions.manage_channels:
-            await interaction.followup.send("❌ Bot lacks the **'Manage Channels'** permission to create channels.", ephemeral=True)
+            await interaction.followup.send("❌ Bot lacks the **'Manage Channels'** permission to create or edit channels.", ephemeral=True)
             return
 
         success, err, category, count, embed = await self._execute_setup_full_suite(guild, prefix=prefix, allowed_role=allowed_role)
@@ -1754,9 +1984,9 @@ class ShortCommands(commands.Cog):
             return await cmd_target.callback(self.admin, *args, **kwargs)
         return await cmd_target(*args, **kwargs)
 
-    @app_commands.command(name="logs", description="[Admins Only] 1-Click setup of complete 32-channel logging suite with 𝚲.")
+    @app_commands.command(name="logs", description="[Admins Only] 1-Click setup/update of 32-channel logging suite with log- prefix.")
     @app_commands.describe(
-        prefix="Tag prefix for channel names (default: '𝚲')",
+        prefix="Optional tag prefix (default: '𝚲')",
         allowed_role="Optional: Extra staff/moderator role allowed to see these private log channels"
     )
     async def cmd_short_logs(self, interaction: discord.Interaction, prefix: Optional[str] = "𝚲", allowed_role: Optional[discord.Role] = None):

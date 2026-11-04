@@ -61,16 +61,15 @@ class LoggingSystem(commands.Cog):
                 return ch
 
         # 2. Dynamic Auto-Discovery: Search guild text channels for existing log channels
-        formatted_key = cat_key.replace("_", "-")
         candidate = None
+        from src.cogs.admin import matches_log_channel
 
         # Pass 1: Look inside dedicated log categories first
         for cat in guild.categories:
             cat_name = cat.name.lower()
-            if "log" in cat_name or "𝚲" in cat.name or "security" in cat_name:
+            if "server logs" in cat_name or "log" in cat_name or "𝚲" in cat.name or "security" in cat_name:
                 for ch in cat.text_channels:
-                    cname = ch.name.lower()
-                    if formatted_key in cname or cat_key in cname:
+                    if matches_log_channel(ch.name, cat_key):
                         candidate = ch
                         break
             if candidate:
@@ -79,8 +78,7 @@ class LoggingSystem(commands.Cog):
         # Pass 2: Fallback across any text channel in guild
         if not candidate:
             for ch in guild.text_channels:
-                cname = ch.name.lower()
-                if cname.endswith(f"-{formatted_key}") or cname.endswith(f"-{cat_key}") or f"-{formatted_key}-" in cname or cname == formatted_key or cname == cat_key:
+                if matches_log_channel(ch.name, cat_key):
                     candidate = ch
                     break
 

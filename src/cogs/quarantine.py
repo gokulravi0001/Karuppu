@@ -22,6 +22,19 @@ class QuarantineSystem(commands.Cog, name="quarantine"):
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+        self._unquarantining = set()  # Set of (guild_id, user_id) actively being unquarantined
+        self._quarantining = set()    # Set of (guild_id, user_id) actively being quarantined
+
+    def _is_quarantine_role(self, role: Optional[discord.Role], guild: discord.Guild) -> bool:
+        """Determines if a role is the configured or recognized quarantine role."""
+        if not role:
+            return False
+        settings = bot_config.guild_settings_cache.get(guild.id, {})
+        q_role_id = settings.get("quarantine_role_id")
+        if q_role_id and role.id == q_role_id:
+            return True
+        rname = role.name.lower().strip()
+        return "quarantine" in rname or "isolated" in rname or "isolation" in rname
 
     # ==========================================
     # PERMISSION & HIERARCHY CHECKS
@@ -314,9 +327,24 @@ class QuarantineSystem(commands.Cog, name="quarantine"):
         quarantine_category = await self.get_or_create_quarantine_category(guild, quarantine_role)
         await self.sync_quarantine_overwrites(guild, quarantine_role, quarantine_category)
 
+        # Refresh member to guarantee current roles
+        try:
+            fresh_target = await guild.fetch_member(target.id)
+            if fresh_target:
+                target = fresh_target
+        except Exception:
+            pass
+
         # 1. Back up existing roles (excluding @everyone, quarantine_role)
-        saved_roles = [r for r in target.roles if r != guild.default_role and r != quarantine_role]
+        saved_roles = [r for r in target.roles if r != guild.default_role and not self._is_quarantine_role(r, guild)]
         saved_role_ids = [r.id for r in saved_roles]
+
+        # Guard: if target currently has no roles but already had a prior backup in DB, preserve the prior backup
+        if not saved_role_ids:
+            prior_rec = await db.get_quarantine(guild.id, target.id)
+            if prior_rec and prior_rec.get("saved_role_ids"):
+                saved_role_ids = prior_rec["saved_role_ids"]
+                saved_roles = [guild.get_role(rid) for rid in saved_role_ids if guild.get_role(rid)]
 
         # 2. Check and temporarily suppress member-specific channel overrides that might give view access
         suppressed_overwrites = []
@@ -335,15 +363,32 @@ class QuarantineSystem(commands.Cog, name="quarantine"):
 
         # 3. Strip all removable roles and assign Quarantine role
         # Managed roles (e.g. Nitro Booster) and roles >= bot top role cannot be removed
-        roles_to_keep = [r for r in target.roles if (r.managed or r >= guild.me.top_role) and r != guild.default_role]
-        new_roles = [guild.default_role, quarantine_role] + [r for r in roles_to_keep if r != quarantine_role]
-
+        q_key = (guild.id, target.id)
+        self._quarantining.add(q_key)
         try:
-            await target.edit(roles=new_roles, reason=f"Quarantine enforced by {moderator}: {reason}")
-        except discord.Forbidden:
-            return False, "❌ Bot lacks permission to modify roles for this member. Check role hierarchy.", None
-        except Exception as e:
-            return False, f"❌ Failed updating member roles: {e}", None
+            roles_to_keep = [r for r in target.roles if (r.managed or r >= guild.me.top_role) and r != guild.default_role and not self._is_quarantine_role(r, guild)]
+            new_roles = [guild.default_role, quarantine_role] + roles_to_keep
+            dedup_roles = []
+            for r in new_roles:
+                if r and r not in dedup_roles:
+                    dedup_roles.append(r)
+
+            try:
+                await target.edit(roles=dedup_roles, reason=f"Quarantine enforced by {moderator}: {reason}")
+            except discord.Forbidden:
+                return False, "❌ Bot lacks permission to modify roles for this member. Check role hierarchy.", None
+            except Exception as e:
+                # Fallback: remove non-kept roles and add quarantine role individually
+                try:
+                    to_strip = [r for r in target.roles if r not in roles_to_keep and not self._is_quarantine_role(r, guild) and r != guild.default_role and r < guild.me.top_role and not r.managed]
+                    if to_strip:
+                        await target.remove_roles(*to_strip, reason=f"Quarantine enforced by {moderator}")
+                    if quarantine_role not in target.roles:
+                        await target.add_roles(quarantine_role, reason=f"Quarantine enforced by {moderator}")
+                except Exception as fb_err:
+                    return False, f"❌ Failed updating member roles: {e} (fallback: {fb_err})", None
+        finally:
+            self._quarantining.discard(q_key)
 
         # 4. Disconnect from voice if currently in a voice channel
         if target.voice and target.voice.channel and guild.me.guild_permissions.move_members:
@@ -439,76 +484,108 @@ class QuarantineSystem(commands.Cog, name="quarantine"):
         reason: str = "Quarantine lifted by staff"
     ) -> Tuple[bool, str, Optional[discord.Embed]]:
         """Lifts quarantine from a member: restores all backed-up roles and channel permissions."""
-        record = await db.get_quarantine(guild.id, user_id)
-        if not record and not bot_config.is_quarantined(guild.id, user_id):
+        record = await db.get_quarantine(guild.id, user_id) or bot_config.get_quarantine(guild.id, user_id)
+        target = guild.get_member(user_id)
+        if not target:
+            try:
+                target = await guild.fetch_member(user_id)
+            except Exception:
+                target = None
+
+        has_q_role_currently = bool(target and any(self._is_quarantine_role(r, guild) for r in target.roles))
+
+        if not record and not bot_config.is_quarantined(guild.id, user_id) and not has_q_role_currently:
             return False, "⚠️ This user is not currently in quarantine.", None
 
         saved_role_ids = record.get("saved_role_ids", []) if record else []
         overwrites_backup = record.get("overwrites_backup") if record else None
 
-        target = guild.get_member(user_id)
         quarantine_role = await self.get_or_create_quarantine_role(guild)
 
         restored_roles = []
         restored_names = []
 
-        if target:
-            # 1. Resolve roles to restore
-            for rid in saved_role_ids:
-                role = guild.get_role(rid)
-                if role and not role.managed and role < guild.me.top_role and role != quarantine_role:
-                    restored_roles.append(role)
-                    restored_names.append(role.name)
+        q_key = (guild.id, user_id)
+        # 1. Prevent on_member_update from undoing role restoration
+        self._unquarantining.add(q_key)
+        # 2. Immediately remove from cache so is_quarantined is False during update
+        bot_config.quarantine_cache.pop(q_key, None)
 
-            # 2. Re-apply restored roles and remove quarantine role
-            new_roles = [r for r in target.roles if (not quarantine_role or r != quarantine_role) and r != guild.default_role]
-            for r in restored_roles:
-                if r not in new_roles:
-                    new_roles.append(r)
+        try:
+            if target:
+                # Resolve roles to restore from backup
+                for rid in saved_role_ids:
+                    role = guild.get_role(rid)
+                    if role and not role.managed and role < guild.me.top_role and not self._is_quarantine_role(role, guild):
+                        restored_roles.append(role)
+                        restored_names.append(role.name)
 
-            try:
-                await target.edit(roles=new_roles, reason=f"Quarantine lifted by {moderator}: {reason}")
-            except discord.Forbidden:
-                return False, "❌ Bot lacks permission to restore roles to this member. Check role hierarchy.", None
-            except Exception as e:
-                return False, f"❌ Failed restoring member roles: {e}", None
+                # Step 1: Strip Quarantine role from member's current roles
+                # Step 2: Add all restored previous roles
+                new_roles = [r for r in target.roles if not self._is_quarantine_role(r, guild) and r != guild.default_role]
+                for r in restored_roles:
+                    if r not in new_roles:
+                        new_roles.append(r)
 
-            # 3. Restore any suppressed channel overrides
-            if overwrites_backup and guild.me.guild_permissions.manage_channels:
                 try:
-                    ch_ids = json.loads(overwrites_backup)
-                    for cid in ch_ids:
-                        ch = guild.get_channel(cid)
-                        if ch:
-                            ow = ch.overwrites.get(target)
-                            if ow:
-                                ow.view_channel = True
-                                await ch.set_permissions(target, overwrite=ow, reason="Restored quarantine channel view access")
+                    await target.edit(roles=new_roles, reason=f"Quarantine lifted by {moderator}: {reason}")
+                    logger.info("Successfully updated roles via edit() for %s (Quarantine role removed, %d roles restored)", target, len(restored_roles))
+                except Exception as edit_err:
+                    logger.warning("target.edit(roles) failed in unquarantine for %s: %s. Using individual role remove and add fallback...", target, edit_err)
+                    # Fallback 1: Explicitly remove all quarantine roles
+                    try:
+                        q_roles_on_target = [r for r in target.roles if self._is_quarantine_role(r, guild)]
+                        if q_roles_on_target:
+                            await target.remove_roles(*q_roles_on_target, reason=f"Quarantine lifted by {moderator}")
+                            logger.info("Directly removed quarantine roles from %s", target)
+                    except Exception as rm_err:
+                        logger.error("Failed directly removing quarantine role from %s: %s", target, rm_err)
+
+                    # Fallback 2: Directly restore each backed-up role individually
+                    for r in restored_roles:
+                        try:
+                            if r not in target.roles:
+                                await target.add_roles(r, reason=f"Quarantine lifted by {moderator}")
+                        except Exception as add_err:
+                            logger.debug("Failed adding single role %s to %s: %s", r.name, target, add_err)
+
+                # Restore any suppressed channel overrides
+                if overwrites_backup and guild.me.guild_permissions.manage_channels:
+                    try:
+                        ch_ids = json.loads(overwrites_backup)
+                        for cid in ch_ids:
+                            ch = guild.get_channel(cid)
+                            if ch:
+                                ow = ch.overwrites.get(target)
+                                if ow:
+                                    ow.view_channel = True
+                                    await ch.set_permissions(target, overwrite=ow, reason="Restored quarantine channel view access")
+                    except Exception:
+                        pass
+
+                # DM the user
+                try:
+                    dm_embed = discord.Embed(
+                        title=f"✅ Quarantine Lifted in {guild.name}",
+                        color=discord.Color.green(),
+                        description=(
+                            f"Your **Quarantine** in **{guild.name}** has been lifted by {moderator.mention}.\n\n"
+                            f"**Reason:** {reason}\n"
+                            f"**Restored Roles ({len(restored_roles)}):** {', '.join(restored_names) if restored_names else 'None'}\n\n"
+                            f"Your server access and visibility have been fully restored."
+                        ),
+                        timestamp=datetime.now(timezone.utc)
+                    )
+                    await target.send(embed=dm_embed)
                 except Exception:
                     pass
 
-            # 4. DM the user
-            try:
-                dm_embed = discord.Embed(
-                    title=f"✅ Quarantine Lifted in {guild.name}",
-                    color=discord.Color.green(),
-                    description=(
-                        f"Your **Quarantine** in **{guild.name}** has been lifted by {moderator.mention}.\n\n"
-                        f"**Reason:** {reason}\n"
-                        f"**Restored Roles ({len(restored_roles)}):** {', '.join(restored_names) if restored_names else 'None'}\n\n"
-                        f"Your server access and visibility have been fully restored."
-                    ),
-                    timestamp=datetime.now(timezone.utc)
-                )
-                await target.send(embed=dm_embed)
-            except Exception:
-                pass
+            # Remove from database
+            await db.remove_quarantine(guild.id, user_id)
+        finally:
+            self._unquarantining.discard(q_key)
 
-        # 5. Remove from database and cache
-        await db.remove_quarantine(guild.id, user_id)
-        bot_config.quarantine_cache.pop((guild.id, user_id), None)
-
-        # 6. Audit logging
+        # Audit logging
         await db.log_incident(
             guild_id=guild.id,
             user_id=user_id,
@@ -531,7 +608,7 @@ class QuarantineSystem(commands.Cog, name="quarantine"):
                 f"**Authorized Staff:** {moderator.mention} (`{moderator.id}`)\n"
                 f"**Reason:** {reason}\n\n"
                 f"📦 **Restored Roles ({len(restored_roles)}):**\n{roles_display}\n\n"
-                f"✅ Member's full server visibility and roles have been restored."
+                f"✅ Member's full server visibility and original roles have been restored."
             ),
             timestamp=datetime.now(timezone.utc)
         )
@@ -583,8 +660,8 @@ class QuarantineSystem(commands.Cog, name="quarantine"):
         await self.sync_quarantine_overwrites(guild, quarantine_role, quarantine_category)
 
         try:
-            roles_to_keep = [r for r in member.roles if (r.managed or r >= guild.me.top_role) and r != guild.default_role]
-            new_roles = [guild.default_role, quarantine_role] + [r for r in roles_to_keep if r != quarantine_role]
+            roles_to_keep = [r for r in member.roles if (r.managed or r >= guild.me.top_role) and r != guild.default_role and not self._is_quarantine_role(r, guild)]
+            new_roles = [guild.default_role, quarantine_role] + roles_to_keep
             await member.edit(roles=new_roles, reason="Quarantine re-enforced on rejoin")
 
             alert_embed = discord.Embed(
@@ -625,25 +702,57 @@ class QuarantineSystem(commands.Cog, name="quarantine"):
 
     @commands.Cog.listener()
     async def on_member_update(self, before: discord.Member, after: discord.Member):
-        """Protects against unauthorized role grants while under quarantine."""
+        """Protects against unauthorized role grants and automatically detects manual quarantine/unquarantine in Discord."""
         guild = after.guild
-        if not bot_config.is_quarantined(guild.id, after.id):
+        key = (guild.id, after.id)
+
+        # Ignore if bot is actively modifying this member's quarantine state
+        if key in self._unquarantining or key in self._quarantining:
             return
 
         quarantine_role = await self.get_or_create_quarantine_role(guild)
-        if not quarantine_role or quarantine_role >= guild.me.top_role:
+        had_q_role = any(self._is_quarantine_role(r, guild) for r in before.roles)
+        has_q_role = any(self._is_quarantine_role(r, guild) for r in after.roles)
+
+        # 1. Quarantine role was removed from the member (e.g. staff removed it in Discord)
+        # Auto-restore all previous roles and lift quarantine!
+        if had_q_role and not has_q_role:
+            logger.info("Quarantine role removed from %s (%d) in '%s'. Auto-restoring roles and lifting quarantine...", after, after.id, guild.name)
+            await self.unquarantine_member(
+                guild=guild,
+                user_id=after.id,
+                moderator=guild.me,
+                reason="Quarantine role removed by staff in Discord (Auto-restored original roles)"
+            )
             return
 
-        added_roles = [r for r in after.roles if r not in before.roles and r != quarantine_role and r != guild.default_role and not r.managed]
-        if added_roles and guild.me.guild_permissions.manage_roles:
-            new_roles = [r for r in after.roles if r not in added_roles]
-            if quarantine_role not in new_roles:
-                new_roles.append(quarantine_role)
-            try:
-                await after.edit(roles=new_roles, reason="Unauthorized role grant stripped: Member is under Quarantine")
-                logger.info("Stripped unauthorized roles %s from quarantined member %s", [r.name for r in added_roles], after)
-            except Exception:
-                pass
+        # 2. Quarantine role was manually assigned to the member in Discord
+        # Auto-quarantine: backup original roles and isolate
+        if not had_q_role and has_q_role and not bot_config.is_quarantined(guild.id, after.id):
+            logger.info("Quarantine role assigned to %s (%d) in '%s'. Auto-quarantining and backing up roles...", after, after.id, guild.name)
+            await self.quarantine_member(
+                guild=guild,
+                target=after,
+                moderator=guild.me,
+                reason="Quarantine role manually assigned by staff in Discord"
+            )
+            return
+
+        # 3. Active quarantine protection: strip unauthorized roles added while quarantined
+        if bot_config.is_quarantined(guild.id, after.id):
+            if not quarantine_role or quarantine_role >= guild.me.top_role:
+                return
+
+            added_roles = [r for r in after.roles if r not in before.roles and not self._is_quarantine_role(r, guild) and r != guild.default_role and not r.managed]
+            if added_roles and guild.me.guild_permissions.manage_roles:
+                new_roles = [r for r in after.roles if r not in added_roles]
+                if quarantine_role not in new_roles:
+                    new_roles.append(quarantine_role)
+                try:
+                    await after.edit(roles=new_roles, reason="Unauthorized role grant stripped: Member is under Quarantine")
+                    logger.info("Stripped unauthorized roles %s from quarantined member %s", [r.name for r in added_roles], after)
+                except Exception:
+                    pass
 
     # ==========================================
     # ONLY 4 QUARANTINE SLASH COMMANDS

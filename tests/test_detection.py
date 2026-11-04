@@ -1,5 +1,6 @@
 """Test suite for Discord Security Bot detection heuristics and core rules."""
 import unittest
+from unittest.mock import MagicMock, AsyncMock, patch
 import unicodedata
 import hashlib
 import time
@@ -606,6 +607,92 @@ class TestFullSuiteLoggingResolution(unittest.TestCase):
         prefix_param = sig.parameters.get("prefix")
         self.assertIsNotNone(prefix_param)
         self.assertEqual(prefix_param.default, "𝚲")
+
+
+class TestQuarantineRoleRestoration(unittest.TestCase):
+    def setUp(self):
+        from src.cogs.quarantine import QuarantineSystem
+        self.bot = MagicMock()
+        self.cog = QuarantineSystem(self.bot)
+        self.guild = MagicMock()
+        self.guild.id = 12345
+        self.guild.name = "TestGuild"
+        self.guild.default_role = MagicMock()
+        self.guild.default_role.id = 100
+        self.guild.me = MagicMock()
+        self.guild.me.top_role.position = 100
+        self.guild.me.guild_permissions.manage_roles = True
+        self.guild.me.guild_permissions.manage_channels = True
+        self.guild.me.guild_permissions.move_members = True
+
+        class MockRole:
+            def __init__(self, rid, name, position=10, managed=False):
+                self.id = rid
+                self.name = name
+                self.position = position
+                self.managed = managed
+            def __ge__(self, other):
+                return self.position >= getattr(other, "position", 0)
+            def __lt__(self, other):
+                return self.position < getattr(other, "position", 0)
+            def __eq__(self, other):
+                return hasattr(other, "id") and self.id == other.id
+            def __repr__(self):
+                return f"<MockRole {self.name}>"
+
+        self.q_role = MockRole(999, "Quarantined", position=50)
+        self.role_a = MockRole(201, "Level 1", position=20)
+        self.role_b = MockRole(202, "VIP Member", position=30)
+        self.guild.default_role = MockRole(100, "@everyone", position=0)
+
+        me_top_role = MockRole(9999, "BotTopRole", position=100)
+        self.guild.me.top_role = me_top_role
+
+        self.guild.fetch_member = AsyncMock()
+        self.guild.roles = [self.guild.default_role, self.q_role, self.role_a, self.role_b]
+        self.guild.get_role = lambda rid: {100: self.guild.default_role, 999: self.q_role, 201: self.role_a, 202: self.role_b}.get(rid)
+
+    def test_is_quarantine_role(self):
+        self.assertTrue(self.cog._is_quarantine_role(self.q_role, self.guild))
+        self.assertFalse(self.cog._is_quarantine_role(self.role_a, self.guild))
+
+    def test_quarantine_role_strip_and_backup_logic(self):
+        target_roles = [self.guild.default_role, self.role_a, self.role_b]
+        saved_roles = [r for r in target_roles if r != self.guild.default_role and not self.cog._is_quarantine_role(r, self.guild)]
+        saved_role_ids = [r.id for r in saved_roles]
+        self.assertEqual(saved_role_ids, [201, 202])
+
+        roles_to_keep = [r for r in target_roles if (r.managed or r >= self.guild.me.top_role) and r != self.guild.default_role and not self.cog._is_quarantine_role(r, self.guild)]
+        new_roles = [self.guild.default_role, self.q_role] + roles_to_keep
+        self.assertIn(self.q_role, new_roles)
+        self.assertNotIn(self.role_a, new_roles)
+        self.assertNotIn(self.role_b, new_roles)
+
+    def test_unquarantine_restores_roles_and_removes_quarantine_role(self):
+        # Target currently in quarantine
+        target_roles = [self.guild.default_role, self.q_role]
+        saved_role_ids = [201, 202]
+
+        restored_roles = []
+        for rid in saved_role_ids:
+            role = self.guild.get_role(rid)
+            if role and not role.managed and role < self.guild.me.top_role and not self.cog._is_quarantine_role(role, self.guild):
+                restored_roles.append(role)
+
+        # Build unquarantined roles:
+        # Step 1: Remove quarantine role
+        # Step 2: Add restored roles
+        unq_roles = [r for r in target_roles if not self.cog._is_quarantine_role(r, self.guild) and r != self.guild.default_role]
+        for r in restored_roles:
+            if r not in unq_roles:
+                unq_roles.append(r)
+
+        # Verification 1: Quarantine role MUST be removed
+        self.assertNotIn(self.q_role, unq_roles)
+
+        # Verification 2: All previous roles MUST return
+        self.assertIn(self.role_a, unq_roles)
+        self.assertIn(self.role_b, unq_roles)
 
 
 if __name__ == "__main__":

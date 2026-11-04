@@ -680,7 +680,7 @@ class QuarantineSystem(commands.Cog, name="quarantine"):
     # 2. /quarantine_setup
     @app_commands.command(
         name="quarantine_setup",
-        description="[Admins Only] Assigns quarantine role, creates quarantine category with text/voice channels & isolates server."
+        description="[Admins Only] Setup quarantine role, create isolated category & channels."
     )
     @app_commands.describe(
         role="The Quarantine role (will be given text and voice access to the new quarantine category)"

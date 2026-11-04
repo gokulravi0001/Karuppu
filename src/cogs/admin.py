@@ -1487,7 +1487,7 @@ class SecurityAdmin(commands.GroupCog, name="security"):
 
     @app_commands.command(
         name="setup_full_suite",
-        description="[Admins Only] Automatically creates all dedicated action log channels inside a private category."
+        description="[Admins Only] 1-Click setup of complete 32-channel logging suite with 𝚲."
     )
     @app_commands.describe(
         prefix="Prefix for channel names (defaults to '𝚲')",

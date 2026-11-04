@@ -1,62 +1,145 @@
-<div class="max-w-4xl mx-auto bg-discord-card border border-gray-800 rounded-2xl p-8 md:p-12">
+<div class="max-w-4xl mx-auto bg-discord-card border border-gray-800 rounded-2xl p-8 md:p-12 shadow-2xl">
     <div class="border-b border-gray-800 pb-6 mb-8">
-        <h1 class="text-3xl md:text-4xl font-extrabold text-white mb-2">Privacy Policy</h1>
-        <p class="text-xs text-gray-400">Effective Date: October 20, 2026 • Last Updated: October 20, 2026</p>
+        <div class="flex items-center space-x-3 mb-2">
+            <span class="text-3xl">🔒</span>
+            <h1 class="text-3xl md:text-4xl font-extrabold text-white">Privacy Policy</h1>
+        </div>
+        <p class="text-xs text-gray-400">Application: <b>KARUPPU#6577</b> (ID: 1560663818353381467) • Effective Date: November 4, 2026 • Last Updated: November 4, 2026</p>
     </div>
 
-    <div class="space-y-6 text-gray-300 text-sm leading-relaxed">
+    <div class="space-y-8 text-gray-300 text-sm leading-relaxed">
         <section>
-            <h2 class="text-lg font-bold text-white mb-2">1. Overview & Privacy-by-Design</h2>
+            <h2 class="text-lg font-bold text-white mb-2 flex items-center space-x-2">
+                <span class="text-discord-blurple">1.</span>
+                <span>Introduction & Commitment to Privacy</span>
+            </h2>
             <p>
-                <b>Antigravity Security</b> is built with strict privacy-by-design standards. We believe that security should never require surveillance. We collect and retain only the minimal operational data required to detect raids, filter scam links, and provide server activity logs.
+                This Privacy Policy explains how <b>Karuppu Security Bot</b> ("Karuppu", "we", "us", or "our", Application ID: <code>1560663818353381467</code>) collects, processes, protects, and retains data when you use the bot within your Discord servers or access its web dashboard.
+            </p>
+            <p class="mt-2">
+                Karuppu was engineered around a foundational <b>Privacy-by-Design</b> architecture: we collect only the minimal data necessary to deliver server protection, automated moderation, raid containment, and activity logging. <b>We do not surveil members or monetize personal data.</b>
             </p>
         </section>
 
         <section>
-            <h2 class="text-lg font-bold text-white mb-2">2. Information We Collect</h2>
-            <p>When operating in a Discord server, the application processes the following types of data:</p>
+            <h2 class="text-lg font-bold text-white mb-2 flex items-center space-x-2">
+                <span class="text-discord-blurple">2.</span>
+                <span>Information We Collect & How It Is Used</span>
+            </h2>
+            <p>To perform automated server security and activity auditing, Karuppu processes the following data:</p>
+            <div class="mt-3 space-y-3">
+                <div class="p-3.5 bg-discord-dark rounded-xl border border-gray-800">
+                    <h3 class="font-semibold text-white text-xs uppercase tracking-wider text-discord-blurple">Discord Platform Identifiers</h3>
+                    <p class="text-gray-300 mt-1">
+                        <b>User IDs, Server (Guild) IDs, Channel IDs, and Role IDs</b>. These public Discord identifiers are utilized strictly to identify server contexts, route activity logs to configured channels, and maintain role hierarchy configurations.
+                    </p>
+                </div>
+
+                <div class="p-3.5 bg-discord-dark rounded-xl border border-gray-800">
+                    <h3 class="font-semibold text-white text-xs uppercase tracking-wider text-discord-blurple">Account Timestamps & Join History</h3>
+                    <p class="text-gray-300 mt-1">
+                        Account creation timestamps and server join timestamps. Used solely to calculate account age for raid wave detection, spam-bot filtering, and progressive trust role progression.
+                    </p>
+                </div>
+
+                <div class="p-3.5 bg-discord-dark rounded-xl border border-gray-800">
+                    <h3 class="font-semibold text-white text-xs uppercase tracking-wider text-discord-blurple">Audit & Voice Channel State Events</h3>
+                    <p class="text-gray-300 mt-1">
+                        Voice state transitions (e.g. member joins, moves, disconnects, video/streaming status, mute/deafen flags) and administrative audit events (e.g. channel permission overrides, nickname updates, role creations). These events are formatted in real time and delivered directly to designated private server log channels chosen by server administrators.
+                    </p>
+                </div>
+
+                <div class="p-3.5 bg-discord-dark rounded-xl border border-gray-800">
+                    <h3 class="font-semibold text-white text-xs uppercase tracking-wider text-discord-blurple">Ephemeral In-Memory Scanning (Zero Persistent Message Storage)</h3>
+                    <p class="text-gray-300 mt-1">
+                        <b>We do not store chat logs or messages in persistent databases.</b> Real-time message content is evaluated in temporary, volatile memory (RAM) through a sliding window buffer with a strict <b>60-second Time-To-Live (TTL)</b> to detect spam bursts, duplicate copypasta, and phishing domains. Once evaluated, harmless messages are completely discarded from memory.
+                    </p>
+                </div>
+
+                <div class="p-3.5 bg-discord-dark rounded-xl border border-gray-800">
+                    <h3 class="font-semibold text-white text-xs uppercase tracking-wider text-discord-blurple">Cryptographic Incident Evidence</h3>
+                    <p class="text-gray-300 mt-1">
+                        When an active security violation occurs (e.g., confirmed phishing link or malicious file upload), only a one-way cryptographic <b>SHA-256 hash</b> of the offending payload along with a brief, truncated snippet (maximum 60 characters) is retained in server incident records for administrative verification.
+                    </p>
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <h2 class="text-lg font-bold text-white mb-2 flex items-center space-x-2">
+                <span class="text-discord-blurple">3.</span>
+                <span>Data Retention & Automated Pruning</span>
+            </h2>
+            <p>
+                We maintain a strict data lifecycle policy:
+            </p>
             <ul class="list-disc pl-5 mt-2 space-y-1.5 text-gray-400">
-                <li><b>Discord Identifiers</b>: Discord User IDs, Server (Guild) IDs, and Channel IDs.</li>
-                <li><b>Account Metadata</b>: Account creation dates and server join timestamps (utilized strictly for raid surge detection and account age audits).</li>
-                <li><b>Security Incident Hashes</b>: When a suspicious phishing link or spam burst is flagged, the message content is cryptographically hashed using <b>SHA-256</b> and stored alongside a short redacted 60-character snippet for moderator review.</li>
-                <li><b>Activity Log Feeds</b>: Message edits (before/after), deletions, and voice channel state transitions routed to your server's designated private log channels.</li>
+                <li><b>Operational In-Memory State</b>: Cleared automatically every 60 seconds.</li>
+                <li><b>Security Incident & Audit Records</b>: Stored in an encrypted local database and subject to an <b>automated 30-day retention pruning cycle</b>. A scheduled daily maintenance worker permanently wipes all incident logs older than 30 days.</li>
+                <li><b>Server Configurations</b>: Server settings (such as designated log channels and sensitivity thresholds) are retained only while the bot remains a member of your server.</li>
             </ul>
         </section>
 
         <section>
-            <h2 class="text-lg font-bold text-white mb-2">3. Ephemeral In-Memory Processing (No Long-Term Message Storage)</h2>
+            <h2 class="text-lg font-bold text-white mb-2 flex items-center space-x-2">
+                <span class="text-discord-blurple">4.</span>
+                <span>Third-Party Sharing & Commercialization Policy</span>
+            </h2>
+            <div class="p-4 bg-discord-dark rounded-xl border border-green-500/30 text-green-200">
+                <p class="font-semibold text-white">🔒 Zero Data Selling Guarantee</p>
+                <p class="mt-1 text-xs leading-relaxed text-gray-300">
+                    <b>We never sell, monetize, rent, or lease your data to any third party.</b> We do not share user identities, server statistics, or incident logs with advertising platforms, data brokers, telemetry trackers, or external analytics firms.
+                </p>
+            </div>
+        </section>
+
+        <section>
+            <h2 class="text-lg font-bold text-white mb-2 flex items-center space-x-2">
+                <span class="text-discord-blurple">5.</span>
+                <span>Data Security & Infrastructure</span>
+            </h2>
             <p>
-                <b>We do not permanently store raw message contents.</b> All standard message scanning (rate limiting, copypasta duplicate checking, and phishing checks) occurs in fast, temporary in-memory sliding buffers with a strict <b>60-second Time-To-Live (TTL)</b>. Once a message passes heuristics, it is completely wiped from runtime memory.
+                Karuppu runs on secured containerized infrastructure with strict least-privilege access controls. Communication between the bot, Discord API, and web dashboard is encrypted in transit using industry-standard TLS/HTTPS. Web dashboard sessions utilize cryptographically signed tokens.
             </p>
         </section>
 
         <section>
-            <h2 class="text-lg font-bold text-white mb-2">4. Data Retention & Automated Deletion</h2>
+            <h2 class="text-lg font-bold text-white mb-2 flex items-center space-x-2">
+                <span class="text-discord-blurple">6.</span>
+                <span>User Rights & Data Deletion (GDPR & CCPA Compliance)</span>
+            </h2>
             <p>
-                Structured security incident records stored in the server's local database are automatically pruned by a daily background maintenance task. Records older than the configured retention window (default: <b>30 days</b>) are permanently purged from the database.
+                We fully respect your rights regarding data access and deletion:
             </p>
+            <ul class="list-disc pl-5 mt-2 space-y-1.5 text-gray-400">
+                <li><b>Server Removal</b>: Removing or kicking Karuppu from your Discord server halts all data collection immediately.</li>
+                <li><b>Complete Data Deletion</b>: Server owners or individual users may request complete deletion of all stored server settings, incidents, and metadata by submitting a request to our GitHub issue tracker or contacting the project developer. Requests are processed within 48 hours.</li>
+            </ul>
         </section>
 
         <section>
-            <h2 class="text-lg font-bold text-white mb-2">5. Third-Party Sharing & Commercialization</h2>
+            <h2 class="text-lg font-bold text-white mb-2 flex items-center space-x-2">
+                <span class="text-discord-blurple">7.</span>
+                <span>Children's Privacy</span>
+            </h2>
             <p>
-                <b>We never sell, lease, or monetize your data.</b> We do not share Discord user information, server settings, or audit logs with advertising networks, third-party analytics providers, or external data brokers.
-            </p>
-        </section>
-
-        <section>
-            <h2 class="text-lg font-bold text-white mb-2">6. User Rights & Data Removal Requests</h2>
-            <p>
-                Server administrators have full control over their server's database records. Removing the bot from a server and deleting the container volume permanently deletes all associated server records. If an individual user wishes to request deletion of specific incident logs, they may contact the server administrator or submit a request via our GitHub repository.
+                Karuppu is not intended for use by anyone under the age of 13 (or the minimum legal age for Discord usage in your jurisdiction). We do not knowingly collect personal information from children under 13.
             </p>
         </section>
 
         <section class="border-t border-gray-800 pt-6">
-            <h2 class="text-lg font-bold text-white mb-2">7. Contact & Privacy Inquiries</h2>
+            <h2 class="text-lg font-bold text-white mb-2 flex items-center space-x-2">
+                <span class="text-discord-blurple">8.</span>
+                <span>Contact & Privacy Inquiries</span>
+            </h2>
             <p class="text-gray-400">
-                For questions regarding this Privacy Policy or our security handling practices, please contact us on GitHub:
-                <a href="https://github.com/gokulravi0001/Karuppu" class="text-discord-blurple hover:underline ml-1">https://github.com/gokulravi0001/Karuppu</a>
+                If you have questions, feedback, or data deletion inquiries concerning this Privacy Policy, please contact our development team:
             </p>
+            <div class="mt-3 p-4 bg-discord-dark rounded-xl border border-gray-700 space-y-1 text-xs">
+                <p><b>Bot Application</b>: KARUPPU#6577 (ID: <code>1560663818353381467</code>)</p>
+                <p><b>GitHub Repository</b>: <a href="https://github.com/gokulravi0001/Karuppu" target="_blank" class="text-discord-blurple hover:underline">https://github.com/gokulravi0001/Karuppu</a></p>
+                <p><b>Issue & Deletion Requests</b>: <a href="https://github.com/gokulravi0001/Karuppu/issues" target="_blank" class="text-discord-blurple hover:underline">https://github.com/gokulravi0001/Karuppu/issues</a></p>
+            </div>
         </section>
     </div>
 </div>

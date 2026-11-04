@@ -548,7 +548,10 @@ def setup_dashboard_routes(app: web.Application, bot: commands.Bot) -> None:
     # Web Pages
     app.router.add_get("/", ctrl.handle_index)
     app.router.add_get("/terms", ctrl.handle_terms)
+    app.router.add_get("/tos", ctrl.handle_terms)
+    app.router.add_get("/terms-of-service", ctrl.handle_terms)
     app.router.add_get("/privacy", ctrl.handle_privacy)
+    app.router.add_get("/privacy-policy", ctrl.handle_privacy)
     app.router.add_get("/dashboard", ctrl.handle_dashboard)
     app.router.add_get("/dashboard/guild/{guild_id}", ctrl.handle_guild_dashboard)
 

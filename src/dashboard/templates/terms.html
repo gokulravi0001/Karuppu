@@ -1,62 +1,137 @@
-<div class="max-w-4xl mx-auto bg-discord-card border border-gray-800 rounded-2xl p-8 md:p-12">
+<div class="max-w-4xl mx-auto bg-discord-card border border-gray-800 rounded-2xl p-8 md:p-12 shadow-2xl">
     <div class="border-b border-gray-800 pb-6 mb-8">
-        <h1 class="text-3xl md:text-4xl font-extrabold text-white mb-2">Terms of Service</h1>
-        <p class="text-xs text-gray-400">Effective Date: October 20, 2026 • Last Updated: October 20, 2026</p>
+        <div class="flex items-center space-x-3 mb-2">
+            <span class="text-3xl">🛡️</span>
+            <h1 class="text-3xl md:text-4xl font-extrabold text-white">Terms of Service</h1>
+        </div>
+        <p class="text-xs text-gray-400">Application: <b>KARUPPU#6577</b> (ID: 1560663818353381467) • Effective Date: November 4, 2026 • Last Updated: November 4, 2026</p>
     </div>
 
-    <div class="space-y-6 text-gray-300 text-sm leading-relaxed">
+    <div class="space-y-8 text-gray-300 text-sm leading-relaxed">
         <section>
-            <h2 class="text-lg font-bold text-white mb-2">1. Agreement to Terms</h2>
+            <h2 class="text-lg font-bold text-white mb-2 flex items-center space-x-2">
+                <span class="text-discord-blurple">1.</span>
+                <span>Agreement to Terms</span>
+            </h2>
             <p>
-                By adding the <b>Antigravity Security Suite</b> bot to your Discord server, accessing our web dashboard, or using any associated services, you agree to be bound by these Terms of Service and Discord's Terms of Service and Community Guidelines. If you do not agree to these terms, you must not use or add this service.
+                These Terms of Service ("Terms") constitute a legally binding agreement between you ("User", "you", or "Server Administrator") and the operators and developers of <b>Karuppu Security Bot</b> ("Karuppu", "we", "us", or "our", Application ID: <code>1560663818353381467</code>).
+            </p>
+            <p class="mt-2">
+                By inviting <b>Karuppu Security Bot</b> to your Discord server, interacting with its slash or prefix commands, accessing its web dashboard, or receiving automated moderation and logging services, you affirm that you have read, understood, and agreed to be bound by these Terms and our <a href="/privacy" class="text-discord-blurple hover:underline">Privacy Policy</a>. If you do not agree to these Terms, you must not invite, configure, or use the bot.
             </p>
         </section>
 
         <section>
-            <h2 class="text-lg font-bold text-white mb-2">2. Description of Service</h2>
+            <h2 class="text-lg font-bold text-white mb-2 flex items-center space-x-2">
+                <span class="text-discord-blurple">2.</span>
+                <span>Compliance with Discord Terms of Service</span>
+            </h2>
             <p>
-                Antigravity Security is an automated moderation, progressive trust, raid containment, and activity logging application designed to safeguard Discord communities from unsolicited spam, join raids, scam/phishing links, and malicious executable files.
+                Karuppu operates on the Discord platform. As a condition of using Karuppu, you acknowledge and agree that your use must strictly comply with:
             </p>
-        </section>
-
-        <section>
-            <h2 class="text-lg font-bold text-white mb-2">3. Acceptable Use Policy</h2>
-            <p>You agree not to:</p>
             <ul class="list-disc pl-5 mt-2 space-y-1.5 text-gray-400">
-                <li>Use the service to harass, abuse, or unfairly discriminate against users outside legitimate server security procedures.</li>
-                <li>Attempt to bypass, reverse engineer, or exploit the bot's rate limits, APIs, or moderation algorithms.</li>
-                <li>Utilize the bot in violation of Discord's Developer Policy or Community Guidelines.</li>
-                <li>Misrepresent yourself as the bot developer or server owner.</li>
+                <li><a href="https://discord.com/terms" target="_blank" class="text-discord-blurple hover:underline">Discord Terms of Service</a></li>
+                <li><a href="https://discord.com/guidelines" target="_blank" class="text-discord-blurple hover:underline">Discord Community Guidelines</a></li>
+                <li><a href="https://discord.com/developers/docs/policies-and-agreements/developer-terms-of-service" target="_blank" class="text-discord-blurple hover:underline">Discord Developer Terms of Service and Policy</a></li>
             </ul>
         </section>
 
         <section>
-            <h2 class="text-lg font-bold text-white mb-2">4. Automated Moderation & Server Owner Responsibilities</h2>
+            <h2 class="text-lg font-bold text-white mb-2 flex items-center space-x-2">
+                <span class="text-discord-blurple">3.</span>
+                <span>Description of Services</span>
+            </h2>
             <p>
-                Server administrators are solely responsible for setting appropriate role gates, thresholds, and reviewing automated moderation actions. While the bot defaults to <b>Dry-Run Mode</b> to prevent unintended actions, the bot developers are not liable for accidental bans, message deletions, or timeouts triggered by user-configured active enforcement.
+                Karuppu is an advanced automated security, moderation, and activity audit system engineered to protect Discord servers. Key features provided include:
+            </p>
+            <ul class="list-disc pl-5 mt-2 space-y-1.5 text-gray-400">
+                <li><b>Raid Containment & Surge Defense</b>: Real-time detection of coordinated join floods, automated verification gating, and mass account quarantines.</li>
+                <li><b>Heuristic Threat Filtering</b>: In-memory sliding-window inspection of spam bursts, repetitive copypasta, credential harvesters, known phishing domains, and malicious executable attachments.</li>
+                <li><b>Automated Moderation & Progressive Trust</b>: Configurable penalties including warning embeds, message deletions, temporary mutes/timeouts, kicks, and bans.</li>
+                <li><b>Comprehensive Audit & Activity Logging</b>: Dedicated channel logs for message edits/deletions, member nickname/role changes, channel permission overwrites, and voice channel state transitions (moves, server deafens, video/streaming toggles).</li>
+                <li><b>Web Dashboard & Administration</b>: A secure interface for server administrators to inspect security incidents, configure thresholds, and manage server rules.</li>
+            </ul>
+        </section>
+
+        <section>
+            <h2 class="text-lg font-bold text-white mb-2 flex items-center space-x-2">
+                <span class="text-discord-blurple">4.</span>
+                <span>Server Administrator Responsibilities & Permissions</span>
+            </h2>
+            <p>
+                Server administrators are solely responsible for:
+            </p>
+            <ul class="list-disc pl-5 mt-2 space-y-1.5 text-gray-400">
+                <li>Assigning appropriate Discord permissions and role hierarchies to Karuppu.</li>
+                <li>Configuring sensitivity thresholds, dry-run modes, and enforcement actions.</li>
+                <li>Ensuring their community members are informed that automated moderation and audit logging are active within the server.</li>
+                <li>Reviewing automated punitive actions and managing appeals from their server members.</li>
+            </ul>
+            <p class="mt-2 text-xs text-gray-400">
+                <i>Note: By default, Karuppu provides a <b>Dry-Run Mode</b> allowing administrators to test and verify detection rules without applying active penalties to users.</i>
             </p>
         </section>
 
         <section>
-            <h2 class="text-lg font-bold text-white mb-2">5. Disclaimer & Limitation of Liability</h2>
+            <h2 class="text-lg font-bold text-white mb-2 flex items-center space-x-2">
+                <span class="text-discord-blurple">5.</span>
+                <span>Acceptable Use & Prohibited Conduct</span>
+            </h2>
+            <p>Users and administrators agree <b>not</b> to:</p>
+            <ul class="list-disc pl-5 mt-2 space-y-1.5 text-gray-400">
+                <li>Attempt to bypass, disrupt, exploit, overload, or reverse-engineer the bot's infrastructure, algorithms, or API endpoints.</li>
+                <li>Use the bot to deliberately harass, dox, stalk, or inflict harm upon any individual.</li>
+                <li>Use the bot for illegal activities, distributing malware, or facilitating coordinated raids against other communities.</li>
+                <li>Spoof or misrepresent identities, administrative affiliations, or security reports.</li>
+            </ul>
+        </section>
+
+        <section>
+            <h2 class="text-lg font-bold text-white mb-2 flex items-center space-x-2">
+                <span class="text-discord-blurple">6.</span>
+                <span>Availability, Modifications, & Termination</span>
+            </h2>
             <p>
-                The service is provided on an "AS IS" and "AS AVAILABLE" basis without warranties of any kind. We make no guarantee that the service will be entirely uninterrupted, error-free, or catch every security threat. In no event shall the creators be liable for indirect, incidental, or consequential damages arising from the use of or inability to use the service.
+                We strive for maximum uptime and reliability, but we do not guarantee continuous, uninterrupted availability. We reserve the right to modify, suspend, or terminate the bot's services at any time without prior notice. We reserve the right to blacklist or deny service to any Discord server or user found violating these Terms or Discord's policies.
+            </p>
+            <p class="mt-2">
+                You may terminate your agreement with these Terms at any time simply by removing or kicking <b>Karuppu</b> from your Discord server.
             </p>
         </section>
 
         <section>
-            <h2 class="text-lg font-bold text-white mb-2">6. Modifications & Termination</h2>
-            <p>
-                We reserve the right to modify these terms at any time. Continued use of the service following modifications constitutes your acceptance of the revised terms. You may terminate your use at any time by kicking the bot from your Discord server.
+            <h2 class="text-lg font-bold text-white mb-2 flex items-center space-x-2">
+                <span class="text-discord-blurple">7.</span>
+                <span>Disclaimer of Warranties</span>
+            </h2>
+            <p class="text-gray-400">
+                THE SERVICE IS PROVIDED ON AN <b>"AS IS"</b> AND <b>"AS AVAILABLE"</b> BASIS WITHOUT ANY WARRANTIES OF ANY KIND, WHETHER EXPRESS, IMPLIED, STATUTORY, OR OTHERWISE, INCLUDING BUT NOT LIMITED TO WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NON-INFRINGEMENT. WE DO NOT GUARANTEE THAT THE SERVICE WILL IDENTIFY OR PREVENT EVERY SECURITY THREAT OR OPERATE WITHOUT ERROR OR INTERRUPTION.
+            </p>
+        </section>
+
+        <section>
+            <h2 class="text-lg font-bold text-white mb-2 flex items-center space-x-2">
+                <span class="text-discord-blurple">8.</span>
+                <span>Limitation of Liability</span>
+            </h2>
+            <p class="text-gray-400">
+                TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, IN NO EVENT SHALL THE DEVELOPERS, HOSTING PROVIDERS, OR CONTRIBUTORS OF KARUPPU BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, OR PUNITIVE DAMAGES, INCLUDING BUT NOT LIMITED TO LOSS OF DATA, SERVER DOWNTIME, ACCIDENTAL USER BANS OR KICKS, OR REPUTATIONAL DAMAGE ARISING OUT OF OR IN CONNECTION WITH YOUR USE OF THE SERVICE.
             </p>
         </section>
 
         <section class="border-t border-gray-800 pt-6">
-            <h2 class="text-lg font-bold text-white mb-2">7. Contact Information</h2>
+            <h2 class="text-lg font-bold text-white mb-2 flex items-center space-x-2">
+                <span class="text-discord-blurple">9.</span>
+                <span>Contact & Inquiries</span>
+            </h2>
             <p class="text-gray-400">
-                For questions regarding these Terms of Service or to report security vulnerabilities, please open an issue on our official repository:
-                <a href="https://github.com/gokulravi0001/Karuppu" class="text-discord-blurple hover:underline ml-1">https://github.com/gokulravi0001/Karuppu</a>
+                If you have questions about these Terms of Service or need technical support, please contact us through our official project channels:
             </p>
+            <div class="mt-3 p-4 bg-discord-dark rounded-xl border border-gray-700 space-y-1 text-xs">
+                <p><b>Bot Application</b>: KARUPPU#6577 (ID: <code>1560663818353381467</code>)</p>
+                <p><b>GitHub Repository</b>: <a href="https://github.com/gokulravi0001/Karuppu" target="_blank" class="text-discord-blurple hover:underline">https://github.com/gokulravi0001/Karuppu</a></p>
+                <p><b>Issue Tracker</b>: <a href="https://github.com/gokulravi0001/Karuppu/issues" target="_blank" class="text-discord-blurple hover:underline">https://github.com/gokulravi0001/Karuppu/issues</a></p>
+            </div>
         </section>
     </div>
 </div>

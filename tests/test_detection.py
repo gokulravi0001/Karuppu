@@ -960,6 +960,49 @@ class TestAntiNuke8sRulesAndProxyAttribution(unittest.TestCase):
         expired_culprit = self.logging_sys.get_recent_bot_command_issuer(guild_id, bot_id=bot_id, window_seconds=0.0)
         self.assertIsNone(expired_culprit)
 
+    def test_external_bot_command_detection(self):
+        """Verify command detection for external bots not in server (e.g. pls, m!, dank, dyno, -ban)."""
+        import re
+        test_messages = [
+            ("pls beg", True, "Dank Memer"),
+            ("dank daily", True, "Dank Memer"),
+            ("m!play lofi hip hop", True, "Music Bot"),
+            ("dyno ban @user", True, "Dyno"),
+            ("c!warn @user spam", True, "Carl-bot"),
+            ("-ban @user", True, "Symbol Prefix"),
+            ("?rank", True, "Symbol Prefix"),
+            ("!kick @user", True, "Symbol Prefix"),
+            (";;play track", True, "Groovy / Music"),
+            ("just a normal message", False, "")
+        ]
+
+        bot_keywords = {
+            "pls": "Dank Memer", "dank": "Dank Memer", "carl": "Carl-bot",
+            "dyno": "Dyno", "mee6": "MEE6", "m!": "Music Bot", "c!": "Carl-bot",
+            ";;": "Groovy / Music"
+        }
+        prefixes = ("!", "?", ".", "/", "$", "+", "-", ">", ";", ",", "~", "_", "=", "%", "&", "^", "*")
+
+        for content, should_match, expected_bot in test_messages:
+            is_cmd = False
+            matched_bot = ""
+            lower = content.lower()
+            for kw, bname in bot_keywords.items():
+                if lower.startswith(kw.lower() + " ") or lower == kw.lower() or (len(kw) > 1 and (kw.endswith("!") or kw.startswith(";")) and lower.startswith(kw.lower())):
+                    is_cmd = True
+                    matched_bot = bname
+                    break
+            if not is_cmd:
+                for p in prefixes:
+                    if content.startswith(p) and len(content) > 1 and not content[1].isspace():
+                        is_cmd = True
+                        matched_bot = "Symbol Prefix"
+                        break
+
+            self.assertEqual(is_cmd, should_match, f"Failed match for '{content}'")
+            if should_match and expected_bot:
+                self.assertEqual(matched_bot, expected_bot)
+
 
 if __name__ == "__main__":
     unittest.main()

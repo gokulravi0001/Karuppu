@@ -294,11 +294,14 @@ class LoggingSystem(commands.Cog):
             logger.debug("Failed posting edit log: %s", e)
 
     # ==========================================
-    # BOT COMMAND & TRIGGER LOGGING (Proxy-Nuke Attribution)
+    # BOT COMMAND & TRIGGER LOGGING (Universal All-Bot Tracking)
     # ==========================================
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
-        """Monitors all messages to track bot commands, triggers, and bot responses.
+        """Monitors all messages in the server to track:
+        1. Slash commands executed on ANY bot (via interaction metadata).
+        2. Prefix commands for ANY bot (even if the bot is not in the server).
+        3. Bot responses and normal messages triggering bot features.
         Correlates who commanded which bot so proxy abuse can be traced back to the human culprit.
         """
         if not message.guild:
@@ -308,12 +311,52 @@ class LoggingSystem(commands.Cog):
         now = time.time()
         bot_log_channel = self._get_target_channel(guild, "bot_commands")
 
-        # Case 1: Message is from a BOT (Detect bot responses and attribute who triggered it)
+        # ------------------------------------------------------------------
+        # Case 1: Message is from a BOT (Detect slash commands & bot triggers)
+        # ------------------------------------------------------------------
         if message.author.bot:
+            # A. Check for Slash Command Response on ANY bot in the server
+            interaction = getattr(message, "interaction_metadata", None) or getattr(message, "interaction", None)
+            if interaction and getattr(interaction, "user", None):
+                invoker = interaction.user
+                cmd_name = getattr(interaction, "name", "slash_command")
+                if isinstance(invoker, (discord.User, discord.Member)):
+                    self.recent_bot_commands.append({
+                        "guild_id": guild.id,
+                        "channel_id": message.channel.id,
+                        "user_id": invoker.id,
+                        "user": invoker,
+                        "command": f"/{cmd_name}",
+                        "target_bot_id": message.author.id,
+                        "target_bot_name": message.author.name,
+                        "timestamp": now
+                    })
+
+                    # If this was another bot (not Karuppu), log the slash command execution
+                    if message.author.id != self.bot.user.id and bot_log_channel:
+                        embed = discord.Embed(
+                            title="⚡ External Bot Slash Command Executed",
+                            color=discord.Color.og_blurple(),
+                            timestamp=datetime.now(timezone.utc)
+                        )
+                        embed.set_author(name=f"{invoker.display_name} (`{invoker.name}`)", icon_url=invoker.display_avatar.url)
+                        embed.add_field(name="👤 Executed By", value=f"{invoker.mention} (`{invoker.id}`)", inline=True)
+                        embed.add_field(name="🤖 Target Bot", value=f"{message.author.mention} (`{message.author.name}`)", inline=True)
+                        embed.add_field(name="💬 Channel", value=message.channel.mention, inline=True)
+                        embed.add_field(name="⚡ Slash Command", value=f"`/{cmd_name}`", inline=False)
+                        if message.content:
+                            embed.add_field(name="📤 Bot Response Preview", value=f"```{message.content[:500]}```", inline=False)
+                        embed.set_footer(text=f"Universal Bot Tracker • User ID: {invoker.id}")
+                        try:
+                            await bot_log_channel.send(embed=embed)
+                        except Exception as log_err:
+                            logger.debug("Failed logging external slash command: %s", log_err)
+                    return
+
+            # B. Check if this bot message is a reply to a human message
             trigger_user = None
             trigger_content = ""
 
-            # Check if this bot message is a direct reply to a human user
             if message.reference and message.reference.message_id:
                 ref_msg = message.reference.resolved
                 if not isinstance(ref_msg, discord.Message):
@@ -326,7 +369,7 @@ class LoggingSystem(commands.Cog):
                     trigger_user = ref_msg.author
                     trigger_content = ref_msg.content or "*[Embed or Attachment Trigger]*"
 
-            # Check if a human sent a message in this channel within the last 3.5 seconds
+            # C. Check if a human sent a message in this channel within the last 3.5 seconds
             if not trigger_user and message.channel.id in self.recent_channel_messages:
                 recent_human = self.recent_channel_messages[message.channel.id]
                 if recent_human:
@@ -336,7 +379,6 @@ class LoggingSystem(commands.Cog):
                         trigger_content = latest["content"]
 
             if trigger_user:
-                # Record attribution in recent_bot_commands
                 self.recent_bot_commands.append({
                     "guild_id": guild.id,
                     "channel_id": message.channel.id,
@@ -348,9 +390,9 @@ class LoggingSystem(commands.Cog):
                     "timestamp": now
                 })
 
-                if bot_log_channel:
+                if bot_log_channel and message.author.id != self.bot.user.id:
                     embed = discord.Embed(
-                        title="🤖 Bot Trigger Attribution Detected",
+                        title="🤖 Bot Response / Trigger Attribution",
                         color=discord.Color.teal(),
                         timestamp=datetime.now(timezone.utc)
                     )
@@ -368,7 +410,9 @@ class LoggingSystem(commands.Cog):
                         logger.debug("Failed logging bot trigger: %s", log_err)
             return
 
-        # Case 2: Message is from a HUMAN USER (Detect if it is a bot command or trigger)
+        # ------------------------------------------------------------------
+        # Case 2: Message is from a HUMAN USER (Detect ANY Bot Command or Trigger)
+        # ------------------------------------------------------------------
         if isinstance(message.author, discord.Member):
             self.recent_channel_messages[message.channel.id].append({
                 "user": message.author,
@@ -384,15 +428,61 @@ class LoggingSystem(commands.Cog):
         is_bot_cmd = False
         target_bot = None
         cmd_prefix = ""
+        known_bot_name = ""
 
-        # A. Mention of a bot
+        # 1. Direct mention of any bot (in server)
         for m in message.mentions:
             if m.bot:
                 target_bot = m
                 is_bot_cmd = True
+                cmd_prefix = f"@{m.name}"
                 break
 
-        # B. Standard bot prefixes
+        # 2. Known bot prefix words (even if bot is NOT in server: pls, dank, carl, dyno, mee6, etc.)
+        bot_keywords = {
+            "pls": "Dank Memer",
+            "dank": "Dank Memer",
+            "carl": "Carl-bot",
+            "dyno": "Dyno",
+            "mee6": "MEE6",
+            "probot": "ProBot",
+            "hydra": "Hydra",
+            "fredboat": "FredBoat",
+            "rythm": "Rythm",
+            "groov": "Groovy",
+            "ticket": "Ticket Tool",
+            "modmail": "Modmail",
+            "mudae": "Mudae",
+            "poketwo": "Pokétwo",
+            "p!": "Pokétwo",
+            "owo": "OwO Bot",
+            "karuta": "Karuta",
+            "k!": "Karuta / K-Bot",
+            "anigame": "Anigame",
+            ".": "Dot Prefix",
+            "m!": "Music Bot",
+            "c!": "Carl-bot",
+            "t!": "Tatsu",
+            "g!": "GiveawayBot",
+            "d!": "Disboard",
+            "w!": "Wick / Weather",
+            "b!": "Bot",
+            "s!": "Server Bot",
+            "y!": "Yui",
+            ";;": "Groovy / Music"
+        }
+
+        # Check keyword prefixes
+        lower_content = content.lower()
+        if not is_bot_cmd:
+            for kw, bname in bot_keywords.items():
+                if lower_content.startswith(kw.lower() + " ") or lower_content == kw.lower() or (len(kw) > 1 and (kw.endswith("!") or kw.startswith(";")) and lower_content.startswith(kw.lower())):
+                    is_bot_cmd = True
+                    cmd_prefix = kw
+                    known_bot_name = bname
+                    break
+
+        # 3. Standard symbol prefixes: !, ?, ., /, $, +, -, >, ;, ,, ~, _, =, %, &, ^, *
         prefixes = ("!", "?", ".", "/", "$", "+", "-", ">", ";", ",", "~", "_", "=", "%", "&", "^", "*")
         if not is_bot_cmd:
             for p in prefixes:
@@ -401,14 +491,29 @@ class LoggingSystem(commands.Cog):
                     cmd_prefix = p
                     break
 
-        # C. Common natural language / text-based bot commands
+        # 4. Multi-letter bot prefixes (e.g. bb!, mc!, rt!, np!, dj!, etc.)
         if not is_bot_cmd:
-            cmd_match = re.match(r"^(play|skip|stop|queue|np|ban|kick|mute|unmute|timeout|warn|purge|clear|clean|nuke|lock|unlock|role|setup|config)\b", content, re.IGNORECASE)
+            multi_match = re.match(r"^([a-zA-Z]{1,3}[!?.+->;])\w+", content)
+            if multi_match:
+                is_bot_cmd = True
+                cmd_prefix = multi_match.group(1)
+
+        # 5. Common command verbs (play, skip, stop, ban, kick, mute, warn, purge, nuke, etc.)
+        if not is_bot_cmd:
+            cmd_match = re.match(r"^(play|skip|stop|queue|np|pause|resume|ban|kick|mute|unmute|timeout|warn|purge|clear|clean|nuke|lock|unlock|role|setup|config|prefix|help|rank|level|bal|balance|daily|pay|shop|buy|inv|inventory)\b", content, re.IGNORECASE)
             if cmd_match:
                 is_bot_cmd = True
                 cmd_prefix = cmd_match.group(1)
 
+        # If detected as a bot command:
         if is_bot_cmd and isinstance(message.author, discord.Member):
+            bot_display_name = (
+                target_bot.name if target_bot else
+                known_bot_name if known_bot_name else
+                "External / Third-Party Bot"
+            )
+
+            # Record in recent commands buffer for proxy attribution
             self.recent_bot_commands.append({
                 "guild_id": guild.id,
                 "channel_id": message.channel.id,
@@ -416,10 +521,11 @@ class LoggingSystem(commands.Cog):
                 "user": message.author,
                 "command": content,
                 "target_bot_id": target_bot.id if target_bot else None,
-                "target_bot_name": target_bot.name if target_bot else "Unknown / Third-Party Bot",
+                "target_bot_name": bot_display_name,
                 "timestamp": now
             })
 
+            # Dispatch rich log embed to #log-bot-commands
             if bot_log_channel:
                 embed = discord.Embed(
                     title="⌨️ Bot Command Executed",
@@ -429,13 +535,17 @@ class LoggingSystem(commands.Cog):
                 embed.set_author(name=f"{message.author.display_name} (`{message.author.name}`)", icon_url=message.author.display_avatar.url)
                 embed.add_field(name="👤 Executed By", value=f"{message.author.mention} (`{message.author.id}`)", inline=True)
                 embed.add_field(name="💬 Channel", value=message.channel.mention, inline=True)
+                
                 if target_bot:
-                    embed.add_field(name="🤖 Target Bot", value=f"{target_bot.mention} (`{target_bot.name}`)", inline=True)
+                    embed.add_field(name="🤖 Target Bot (In Server)", value=f"{target_bot.mention} (`{target_bot.name}`)", inline=True)
+                elif known_bot_name:
+                    embed.add_field(name="🤖 Target Bot (Command Match)", value=f"`{known_bot_name}` *(Prefix: `{cmd_prefix}`)*", inline=True)
                 else:
-                    embed.add_field(name="🏷️ Prefix / Command", value=f"`{cmd_prefix or 'Standard Prefix'}`", inline=True)
-                embed.add_field(name="📜 Full Command / Trigger", value=f"```{content[:1000]}```", inline=False)
+                    embed.add_field(name="🏷️ Prefix / Command Trigger", value=f"`{cmd_prefix or 'Symbol Prefix'}`", inline=True)
+
+                embed.add_field(name="📜 Full Command Content", value=f"```{content[:1000]}```", inline=False)
                 embed.add_field(name="🔗 Jump to Message", value=f"[Click here to view]({message.jump_url})", inline=True)
-                embed.set_footer(text=f"Bot Command Tracker • User ID: {message.author.id}")
+                embed.set_footer(text=f"Universal Bot Command Tracker • User ID: {message.author.id}")
                 try:
                     await bot_log_channel.send(embed=embed)
                 except Exception as log_err:

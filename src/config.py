@@ -224,7 +224,8 @@ class BotConfig:
             "stage": ["channel", "voice", "server"],
             "event": ["server", "channel"],
             "announcement": ["channel", "message", "chat"],
-            "emoji": ["server"]
+            "emoji": ["server"],
+            "bot_commands": ["admin", "security", "mod"]
         }
 
         for fallback_cat in fallbacks.get(cat_key, []):

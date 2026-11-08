@@ -224,6 +224,11 @@ LOG_CHANNEL_CONFIG = {
         "Server integrations, bot additions and webhook creations/deletions",
         ["relationship", "integration", "integrations", "webhook", "webhooks"]
     ),
+    "bot_commands": (
+        "log-bot-commands",
+        "Bot command tracking, trigger attribution, slash commands & proxy abuse detection",
+        ["bot_commands", "bot-commands", "botcommands", "bot-command", "bot-triggers", "bot_triggers", "commands"]
+    ),
 }
 
 FULL_LOG_CHANNELS = [(k, v[1]) for k, v in LOG_CHANNEL_CONFIG.items()]

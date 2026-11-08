@@ -65,15 +65,12 @@ spam_detector:
 # Defends server against compromised admins or rogue bots attempting mass destruction
 anti_nuke:
   enabled: true
-  channel_delete_limit: 3        # >= 3 channels deleted in 10s triggers anti-nuke
-  channel_create_limit: 5        # >= 5 channels created in 10s triggers anti-nuke
-  role_delete_limit: 3           # >= 3 roles deleted in 10s triggers anti-nuke
-  role_create_limit: 5           # >= 5 roles created in 10s triggers anti-nuke
-  mass_ban_limit: 3              # >= 3 bans in 10s triggers anti-nuke
-  mass_kick_limit: 3             # >= 3 kicks in 10s triggers anti-nuke
-  webhook_create_limit: 3        # >= 3 webhooks created in 10s
-  window_seconds: 10             # Velocity window
-  action: "strip_roles"          # "strip_roles" (removes dangerous perms) or "ban" (bans rogue account)
+  window_seconds: 8              # 8-second velocity window
+  channel_mod_limit: 5           # Created or Deleted 5 channels within 8s -> Auto-Quarantine
+  role_mod_limit: 5              # Created or Deleted 5 roles within 8s -> Auto-Quarantine
+  member_punish_limit: 5         # Banned or Kicked >= 5 members within 8s -> Auto-Quarantine
+  webhook_create_limit: 3        # >= 3 webhooks created in 8s
+  action: "quarantine"           # Auto-quarantine the offending member
   auto_lockdown: true            # Automatically locks public channels during a detected nuke attack
 
 # PHISHING & MALICIOUS LINK SCANNER

@@ -760,9 +760,9 @@ class TestLogChannelRenamingAndSuiteUpdates(unittest.TestCase):
         self.matches_fn = matches_log_channel
 
     def test_all_channels_have_log_prefix(self):
-        """Verify all 32 channels are defined and all target channel names start with 'log-'."""
-        self.assertEqual(len(self.config), 32)
-        self.assertEqual(len(self.full_logs), 32)
+        """Verify all 33 channels are defined and all target channel names start with 'log-'."""
+        self.assertEqual(len(self.config), 33)
+        self.assertEqual(len(self.full_logs), 33)
         for key, (target_name, topic, aliases) in self.config.items():
             self.assertTrue(target_name.startswith("log-"), f"Channel '{key}' target name '{target_name}' must start with 'log-'")
             self.assertTrue(len(topic) > 0)
@@ -822,8 +822,8 @@ class TestLogChannelRenamingAndSuiteUpdates(unittest.TestCase):
         self.assertEqual(len(renamed), 2)
         self.assertEqual(renamed[0], (". 𝚲 · message .", "log-messages"))
         self.assertEqual(renamed[1], (". 𝚲 · mod .", "log-moderation"))
-        # 30 new channels created (32 total - 2 matched & renamed)
-        self.assertEqual(len(created), 30)
+        # 31 new channels created (33 total - 2 matched & renamed)
+        self.assertEqual(len(created), len(self.full_logs) - 2)
         self.assertEqual(len(claimed_ids), 2)
 
 
@@ -893,6 +893,72 @@ class TestMemberResolutionAndAdminAuth(unittest.TestCase):
         # 5. Display name string
         res5 = step_coro(self.cog._resolve_member(guild, "TestGokul"))
         self.assertEqual(res5.id, 444444)
+
+
+class TestAntiNuke8sRulesAndProxyAttribution(unittest.TestCase):
+    def setUp(self):
+        from src.cogs.anti_nuke import AntiNuke
+        from src.cogs.logging_system import LoggingSystem
+        self.anti_nuke = AntiNuke(MagicMock())
+        self.logging_sys = LoggingSystem(MagicMock())
+
+    def test_8s_anti_nuke_sliding_window_thresholds(self):
+        guild_id = 112233
+        user_id = 998877
+
+        # 1. Channels Created or Deleted: 5 within 8s
+        for i in range(4):
+            triggered, count = self.anti_nuke._track_action(guild_id, user_id, "channel_mod", threshold=5, window_secs=8)
+            self.assertFalse(triggered, f"Should not trigger on action {i+1}")
+        # 5th action triggers
+        triggered, count = self.anti_nuke._track_action(guild_id, user_id, "channel_mod", threshold=5, window_secs=8)
+        self.assertTrue(triggered)
+        self.assertEqual(count, 5)
+
+        # 2. Roles Created or Deleted: 5 within 8s
+        for i in range(4):
+            triggered, count = self.anti_nuke._track_action(guild_id, user_id, "role_mod", threshold=5, window_secs=8)
+            self.assertFalse(triggered)
+        triggered, count = self.anti_nuke._track_action(guild_id, user_id, "role_mod", threshold=5, window_secs=8)
+        self.assertTrue(triggered)
+        self.assertEqual(count, 5)
+
+        # 3. Bans or Kicks: 5 within 8s
+        for i in range(4):
+            triggered, count = self.anti_nuke._track_action(guild_id, user_id, "member_punish", threshold=5, window_secs=8)
+            self.assertFalse(triggered)
+        triggered, count = self.anti_nuke._track_action(guild_id, user_id, "member_punish", threshold=5, window_secs=8)
+        self.assertTrue(triggered)
+        self.assertEqual(count, 5)
+
+    def test_proxy_bot_command_attribution(self):
+        guild_id = 55555
+        human_user = MagicMock(id=12345)
+        human_user.name = "RogueAdmin"
+        bot_id = 99999
+
+        # Register a recent command issued by human_user to a bot
+        import time
+        now = time.time()
+        self.logging_sys.recent_bot_commands.append({
+            "guild_id": guild_id,
+            "channel_id": 77777,
+            "user_id": human_user.id,
+            "user": human_user,
+            "command": "!massban 111 222 333",
+            "target_bot_id": bot_id,
+            "timestamp": now
+        })
+
+        # Look up issuer for that bot
+        culprit = self.logging_sys.get_recent_bot_command_issuer(guild_id, bot_id=bot_id, window_seconds=15.0)
+        self.assertIsNotNone(culprit)
+        self.assertEqual(culprit.id, 12345)
+        self.assertEqual(culprit.name, "RogueAdmin")
+
+        # Expired lookup beyond 15s should return None
+        expired_culprit = self.logging_sys.get_recent_bot_command_issuer(guild_id, bot_id=bot_id, window_seconds=0.0)
+        self.assertIsNone(expired_culprit)
 
 
 if __name__ == "__main__":

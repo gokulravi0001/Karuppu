@@ -5,8 +5,10 @@ and Moderation Actions (who banned/kicked/timed out whom + reasons) into dedicat
 import time
 import logging
 import asyncio
+import re
+from collections import deque, defaultdict
 from datetime import datetime, timezone, timedelta
-from typing import Optional, Union, List, Any, Dict, Tuple, Sequence
+from typing import Optional, Union, List, Any, Dict, Tuple, Sequence, Deque
 import discord
 from discord.ext import commands
 from src.config import bot_config
@@ -45,6 +47,20 @@ class LoggingSystem(commands.Cog):
         self.recent_role_events: Dict[Tuple, float] = {}
         # (guild_id, user_id, action_type) -> timestamp
         self.recent_mod_events: Dict[Tuple, float] = {}
+        # Bot command invocation tracking for proxy abuse attribution
+        self.recent_bot_commands: Deque[Dict[str, Any]] = deque(maxlen=300)
+        # Tracking recent user messages per channel to detect normal messages triggering bots
+        self.recent_channel_messages: Dict[int, Deque[Dict[str, Any]]] = defaultdict(lambda: deque(maxlen=20))
+
+    def get_recent_bot_command_issuer(self, guild_id: int, bot_id: Optional[int] = None, window_seconds: float = 15.0) -> Optional[discord.Member]:
+        """Finds the most recent human user who issued a command or triggered a bot in the guild within the time window."""
+        now = time.time()
+        for cmd in reversed(self.recent_bot_commands):
+            if cmd.get("guild_id") == guild_id:
+                if (now - cmd.get("timestamp", 0)) <= window_seconds:
+                    if bot_id is None or cmd.get("target_bot_id") == bot_id or not cmd.get("target_bot_id"):
+                        return cmd.get("user")
+        return None
 
     def _get_target_channel(self, guild: discord.Guild, category: str) -> Optional[discord.TextChannel]:
         """Resolves the dedicated log channel for a category in a guild with automatic fallback & auto-discovery."""
@@ -105,6 +121,7 @@ class LoggingSystem(commands.Cog):
                 "announcement": ["channel", "server"],
                 "emoji": ["channel", "server"],
                 "security": ["mod", "server"],
+                "bot_commands": ["admin", "security", "mod"],
             }
             for fb_cat in fallbacks.get(cat_key, []):
                 fb_id = bot_config.get_log_channel_id(guild.id, fb_cat)
@@ -275,6 +292,193 @@ class LoggingSystem(commands.Cog):
             await log_channel.send(embed=embed)
         except Exception as e:
             logger.debug("Failed posting edit log: %s", e)
+
+    # ==========================================
+    # BOT COMMAND & TRIGGER LOGGING (Proxy-Nuke Attribution)
+    # ==========================================
+    @commands.Cog.listener()
+    async def on_message(self, message: discord.Message):
+        """Monitors all messages to track bot commands, triggers, and bot responses.
+        Correlates who commanded which bot so proxy abuse can be traced back to the human culprit.
+        """
+        if not message.guild:
+            return
+
+        guild = message.guild
+        now = time.time()
+        bot_log_channel = self._get_target_channel(guild, "bot_commands")
+
+        # Case 1: Message is from a BOT (Detect bot responses and attribute who triggered it)
+        if message.author.bot:
+            trigger_user = None
+            trigger_content = ""
+
+            # Check if this bot message is a direct reply to a human user
+            if message.reference and message.reference.message_id:
+                ref_msg = message.reference.resolved
+                if not isinstance(ref_msg, discord.Message):
+                    try:
+                        ref_msg = await message.channel.fetch_message(message.reference.message_id)
+                    except Exception:
+                        ref_msg = None
+
+                if ref_msg and isinstance(ref_msg, discord.Message) and not ref_msg.author.bot and isinstance(ref_msg.author, discord.Member):
+                    trigger_user = ref_msg.author
+                    trigger_content = ref_msg.content or "*[Embed or Attachment Trigger]*"
+
+            # Check if a human sent a message in this channel within the last 3.5 seconds
+            if not trigger_user and message.channel.id in self.recent_channel_messages:
+                recent_human = self.recent_channel_messages[message.channel.id]
+                if recent_human:
+                    latest = recent_human[-1]
+                    if (now - latest["timestamp"]) <= 3.5:
+                        trigger_user = latest["user"]
+                        trigger_content = latest["content"]
+
+            if trigger_user:
+                # Record attribution in recent_bot_commands
+                self.recent_bot_commands.append({
+                    "guild_id": guild.id,
+                    "channel_id": message.channel.id,
+                    "user_id": trigger_user.id,
+                    "user": trigger_user,
+                    "command": trigger_content,
+                    "target_bot_id": message.author.id,
+                    "target_bot_name": message.author.name,
+                    "timestamp": now
+                })
+
+                if bot_log_channel:
+                    embed = discord.Embed(
+                        title="🤖 Bot Trigger Attribution Detected",
+                        color=discord.Color.teal(),
+                        timestamp=datetime.now(timezone.utc)
+                    )
+                    embed.set_author(name=f"{trigger_user.display_name} triggered {message.author.name}", icon_url=trigger_user.display_avatar.url)
+                    embed.add_field(name="👤 Triggered By (Human Member)", value=f"{trigger_user.mention} (`{trigger_user.id}`)", inline=True)
+                    embed.add_field(name="🤖 Responding Bot", value=f"{message.author.mention} (`{message.author.id}`)", inline=True)
+                    embed.add_field(name="💬 Channel", value=message.channel.mention, inline=True)
+                    embed.add_field(name="📝 Trigger Message / Prompt", value=f"```{trigger_content[:1000] or '[Empty Trigger]'}```", inline=False)
+                    if message.content:
+                        embed.add_field(name="📤 Bot Response Preview", value=f"```{message.content[:500]}```", inline=False)
+                    embed.set_footer(text=f"Trigger Attribution Engine • Channel ID: {message.channel.id}")
+                    try:
+                        await bot_log_channel.send(embed=embed)
+                    except Exception as log_err:
+                        logger.debug("Failed logging bot trigger: %s", log_err)
+            return
+
+        # Case 2: Message is from a HUMAN USER (Detect if it is a bot command or trigger)
+        if isinstance(message.author, discord.Member):
+            self.recent_channel_messages[message.channel.id].append({
+                "user": message.author,
+                "content": message.content,
+                "timestamp": now,
+                "message_id": message.id
+            })
+
+        content = message.content.strip()
+        if not content:
+            return
+
+        is_bot_cmd = False
+        target_bot = None
+        cmd_prefix = ""
+
+        # A. Mention of a bot
+        for m in message.mentions:
+            if m.bot:
+                target_bot = m
+                is_bot_cmd = True
+                break
+
+        # B. Standard bot prefixes
+        prefixes = ("!", "?", ".", "/", "$", "+", "-", ">", ";", ",", "~", "_", "=", "%", "&", "^", "*")
+        if not is_bot_cmd:
+            for p in prefixes:
+                if content.startswith(p) and len(content) > 1 and not content[1].isspace():
+                    is_bot_cmd = True
+                    cmd_prefix = p
+                    break
+
+        # C. Common natural language / text-based bot commands
+        if not is_bot_cmd:
+            cmd_match = re.match(r"^(play|skip|stop|queue|np|ban|kick|mute|unmute|timeout|warn|purge|clear|clean|nuke|lock|unlock|role|setup|config)\b", content, re.IGNORECASE)
+            if cmd_match:
+                is_bot_cmd = True
+                cmd_prefix = cmd_match.group(1)
+
+        if is_bot_cmd and isinstance(message.author, discord.Member):
+            self.recent_bot_commands.append({
+                "guild_id": guild.id,
+                "channel_id": message.channel.id,
+                "user_id": message.author.id,
+                "user": message.author,
+                "command": content,
+                "target_bot_id": target_bot.id if target_bot else None,
+                "target_bot_name": target_bot.name if target_bot else "Unknown / Third-Party Bot",
+                "timestamp": now
+            })
+
+            if bot_log_channel:
+                embed = discord.Embed(
+                    title="⌨️ Bot Command Executed",
+                    color=discord.Color.blurple(),
+                    timestamp=datetime.now(timezone.utc)
+                )
+                embed.set_author(name=f"{message.author.display_name} (`{message.author.name}`)", icon_url=message.author.display_avatar.url)
+                embed.add_field(name="👤 Executed By", value=f"{message.author.mention} (`{message.author.id}`)", inline=True)
+                embed.add_field(name="💬 Channel", value=message.channel.mention, inline=True)
+                if target_bot:
+                    embed.add_field(name="🤖 Target Bot", value=f"{target_bot.mention} (`{target_bot.name}`)", inline=True)
+                else:
+                    embed.add_field(name="🏷️ Prefix / Command", value=f"`{cmd_prefix or 'Standard Prefix'}`", inline=True)
+                embed.add_field(name="📜 Full Command / Trigger", value=f"```{content[:1000]}```", inline=False)
+                embed.add_field(name="🔗 Jump to Message", value=f"[Click here to view]({message.jump_url})", inline=True)
+                embed.set_footer(text=f"Bot Command Tracker • User ID: {message.author.id}")
+                try:
+                    await bot_log_channel.send(embed=embed)
+                except Exception as log_err:
+                    logger.debug("Failed logging bot command: %s", log_err)
+
+    @commands.Cog.listener()
+    async def on_app_command_completion(self, interaction: discord.Interaction, command: Union[discord.app_commands.Command, discord.app_commands.ContextMenu]):
+        """Logs slash commands executed in the server to log-bot-commands."""
+        guild = interaction.guild
+        if not guild:
+            return
+
+        bot_log_channel = self._get_target_channel(guild, "bot_commands")
+        now = time.time()
+        user = interaction.user
+
+        if isinstance(user, discord.Member):
+            self.recent_bot_commands.append({
+                "guild_id": guild.id,
+                "channel_id": interaction.channel_id,
+                "user_id": user.id,
+                "user": user,
+                "command": f"/{command.name}",
+                "target_bot_id": self.bot.user.id,
+                "target_bot_name": self.bot.user.name,
+                "timestamp": now
+            })
+
+        if bot_log_channel:
+            embed = discord.Embed(
+                title="⚡ Slash Command Executed",
+                color=discord.Color.og_blurple(),
+                timestamp=datetime.now(timezone.utc)
+            )
+            embed.set_author(name=f"{user.display_name} (`{user.name}`)", icon_url=user.display_avatar.url)
+            embed.add_field(name="👤 Executed By", value=f"{user.mention} (`{user.id}`)", inline=True)
+            embed.add_field(name="💬 Channel", value=f"<#{interaction.channel_id}>" if interaction.channel_id else "Unknown", inline=True)
+            embed.add_field(name="⚡ Slash Command", value=f"`/{command.name}`", inline=True)
+            embed.set_footer(text=f"Slash Command Tracker • User ID: {user.id}")
+            try:
+                await bot_log_channel.send(embed=embed)
+            except Exception as log_err:
+                logger.debug("Failed logging slash command: %s", log_err)
 
     # ==========================================
     # 2. VOICE CHANNEL LOGS (Joins, Leaves, Switches, Moves, Mutes/Deafens)

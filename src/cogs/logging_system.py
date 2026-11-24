@@ -62,6 +62,19 @@ class LoggingSystem(commands.Cog):
                         return cmd.get("user")
         return None
 
+    def _can_send(self, channel: Optional[discord.TextChannel], guild: discord.Guild) -> bool:
+        """Verifies if the bot has permission to view channel, send messages, and embed links in the target channel."""
+        if not channel or not isinstance(channel, discord.TextChannel):
+            return False
+        me = getattr(guild, "me", None)
+        if not me:
+            g = getattr(channel, "guild", None)
+            me = getattr(g, "me", None) if g else None
+        if not me:
+            return True
+        perms = channel.permissions_for(me)
+        return perms.view_channel and perms.send_messages and perms.embed_links
+
     def _get_target_channel(self, guild: discord.Guild, category: str) -> Optional[discord.TextChannel]:
         """Resolves the dedicated log channel for a category in a guild with automatic fallback & auto-discovery."""
         if not guild:
@@ -73,19 +86,18 @@ class LoggingSystem(commands.Cog):
         ch_id = bot_config.get_log_channel_id(guild.id, cat_key)
         if ch_id:
             ch = guild.get_channel(ch_id)
-            if isinstance(ch, discord.TextChannel):
+            if self._can_send(ch, guild):
                 return ch
 
-        # 2. Dynamic Auto-Discovery: Search guild text channels for existing log channels
         candidate = None
         from src.cogs.admin import matches_log_channel
 
         # Pass 1: Look inside dedicated log categories first
         for cat in guild.categories:
             cat_name = cat.name.lower()
-            if "server logs" in cat_name or "log" in cat_name or "𝚲" in cat.name or "security" in cat_name:
+            if "server logs" in cat_name or "log" in cat_name or "𝚲" in cat.name or "security" in cat_name or "audit" in cat_name or "staff" in cat_name:
                 for ch in cat.text_channels:
-                    if matches_log_channel(ch.name, cat_key):
+                    if matches_log_channel(ch.name, cat_key) and self._can_send(ch, guild):
                         candidate = ch
                         break
             if candidate:
@@ -94,7 +106,7 @@ class LoggingSystem(commands.Cog):
         # Pass 2: Fallback across any text channel in guild
         if not candidate:
             for ch in guild.text_channels:
-                if matches_log_channel(ch.name, cat_key):
+                if matches_log_channel(ch.name, cat_key) and self._can_send(ch, guild):
                     candidate = ch
                     break
 
@@ -127,14 +139,63 @@ class LoggingSystem(commands.Cog):
                 fb_id = bot_config.get_log_channel_id(guild.id, fb_cat)
                 if fb_id:
                     fb_ch = guild.get_channel(fb_id)
-                    if isinstance(fb_ch, discord.TextChannel):
+                    if self._can_send(fb_ch, guild):
                         candidate = fb_ch
                         break
+                if not candidate:
+                    for ch in guild.text_channels:
+                        if matches_log_channel(ch.name, fb_cat) and self._can_send(ch, guild):
+                            candidate = ch
+                            break
+                if candidate:
+                    break
+
+        # Pass 4: Universal General Log Channel Auto-Discovery
+        # If no granular channel exists, check for common general log channel names
+        if not candidate:
+            general_log_names = [
+                "log-bot-commands", "bot-commands", "bot-logs", "bot-log",
+                "logs", "server-logs", "mod-logs", "audit-logs", "general-logs",
+                "mod-log", "audit-log", "all-logs", "log", "security-log", "security-logs", "security"
+            ]
+            for gen_name in general_log_names:
+                for ch in guild.text_channels:
+                    cname = ch.name.lower().strip()
+                    if cname == gen_name or cname == f"log-{gen_name}" or cname == f"{gen_name}-log":
+                        if self._can_send(ch, guild):
+                            candidate = ch
+                            break
+                if candidate:
+                    break
+
+        # Pass 5: Fallback to primary alert channel
+        if not candidate:
+            alert_id = bot_config.get_alert_channel_id(guild.id)
+            if alert_id:
+                alert_ch = guild.get_channel(alert_id)
+                if self._can_send(alert_ch, guild):
+                    candidate = alert_ch
+
+        # Pass 6: Fallback to ANY text channel containing 'log' where bot has send perms
+        if not candidate:
+            for ch in guild.text_channels:
+                if "log" in ch.name.lower() and self._can_send(ch, guild):
+                    candidate = ch
+                    break
+
+        # Pass 7: Fallback to guild system channel if bot has send perms
+        if not candidate and guild.system_channel and self._can_send(guild.system_channel, guild):
+            candidate = guild.system_channel
 
         if candidate:
             bot_config.guild_log_channels_cache[(guild.id, cat_key)] = candidate.id
             return candidate
 
+        logger.warning(
+            "[LOG_SYSTEM] Could not resolve any log channel for category '%s' in guild '%s' (%d). "
+            "Bot needs a text channel with View Channel, Send Messages, and Embed Links permissions.",
+            cat_key, guild.name, guild.id
+        )
         return None
 
     def _prune_recent_caches(self):

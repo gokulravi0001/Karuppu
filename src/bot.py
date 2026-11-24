@@ -278,24 +278,27 @@ class SecurityBot(commands.Bot):
             except Exception as se:
                 logger.warning("Could not sync commands to guild '%s': %s", guild.name, se)
 
-        # 3. Auto-discover and bind existing log channels for all guilds
-        from src.cogs.admin import FULL_LOG_CHANNELS, matches_log_channel
+        # 3. Auto-discover and bind existing log channels for all guilds (Zero-Creation Sync)
+        admin_cog = self.get_cog("security")
         for guild in self.guilds:
             try:
-                discovered = 0
-                for cat in guild.categories:
-                    cat_lower = cat.name.lower()
-                    if "server logs" in cat_lower or "log" in cat_lower or "𝚲" in cat.name or "security" in cat_lower:
-                        for ch in cat.text_channels:
-                            for ch_key, _ in FULL_LOG_CHANNELS:
-                                if (guild.id, ch_key) not in bot_config.guild_log_channels_cache:
-                                    if matches_log_channel(ch.name, ch_key):
-                                        bot_config.guild_log_channels_cache[(guild.id, ch_key)] = ch.id
-                                        discovered += 1
-                if discovered > 0:
-                    logger.info("Auto-discovered %d existing log channels in guild '%s' (%d)", discovered, guild.name, guild.id)
+                if admin_cog and hasattr(admin_cog, "sync_existing_log_channels"):
+                    count, category, bound_channels, missing = await admin_cog.sync_existing_log_channels(guild)
+                    logger.info("Auto-synced log channels for '%s' (%d): %d/33 channels bound (Category: %s)",
+                                guild.name, guild.id, count, category.name if category else "None")
+                else:
+                    from src.cogs.admin import FULL_LOG_CHANNELS, matches_log_channel
+                    discovered = 0
+                    for ch in guild.text_channels:
+                        for ch_key, _ in FULL_LOG_CHANNELS:
+                            if (guild.id, ch_key) not in bot_config.guild_log_channels_cache:
+                                if matches_log_channel(ch.name, ch_key):
+                                    bot_config.guild_log_channels_cache[(guild.id, ch_key)] = ch.id
+                                    discovered += 1
+                    if discovered > 0:
+                        logger.info("Auto-discovered %d existing log channels in guild '%s' (%d)", discovered, guild.name, guild.id)
             except Exception as disc_err:
-                logger.debug("Error during auto-discovery for %s: %s", guild.name, disc_err)
+                logger.warning("Error during log channel auto-sync for '%s': %s", guild.name, disc_err)
 
         # 4. Auto-reconnect 24/7 Voice Guard to designated channels
         for guild in self.guilds:

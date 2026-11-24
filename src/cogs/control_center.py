@@ -345,7 +345,8 @@ class LogSetupModal(ui.Modal, title="🚀 Setup 33-Channel Logging Suite"):
         self.add_item(self.category_input)
 
     async def on_submit(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
+        if not interaction.response.is_done():
+            await interaction.response.defer(ephemeral=True)
         admin_cog = self.bot.get_cog("security")
         if not admin_cog:
             await interaction.followup.send("❌ Admin module is not loaded.", ephemeral=True)
@@ -356,17 +357,13 @@ class LogSetupModal(ui.Modal, title="🚀 Setup 33-Channel Logging Suite"):
         separator = self.separator_input.value.strip() or "-"
         cat_name = self.category_input.value.strip() or f"{prefix} SERVER LOGS"
 
-        success, err, category, total_created, reply_embed = await admin_cog._handle_setup_full_suite(
+        await admin_cog._handle_setup_full_suite(
             interaction,
             prefix=prefix,
             font_style=font,
             separator=separator,
             category_name=cat_name
         )
-        if success:
-            await interaction.followup.send(embed=reply_embed, ephemeral=True)
-        else:
-            await interaction.followup.send(f"❌ Logging suite setup failed: `{err}`", ephemeral=True)
 
 
 # ==========================================

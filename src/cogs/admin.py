@@ -3,6 +3,8 @@ Handles owner-only bypass configuration, lockdown triggers, dry-run toggles, and
 """
 import asyncio
 import logging
+import re
+import unicodedata
 from datetime import datetime, timezone, timedelta
 from typing import Optional, List, Tuple, Any, Dict
 import discord
@@ -234,9 +236,130 @@ LOG_CHANNEL_CONFIG = {
 FULL_LOG_CHANNELS = [(k, v[1]) for k, v in LOG_CHANNEL_CONFIG.items()]
 
 
+def _generate_font_maps():
+    maps = {
+        "bold": {},
+        "italic": {},
+        "bold_italic": {},
+        "sans": {},
+        "sans_bold": {},
+        "sans_italic": {},
+        "monospace": {},
+        "double_struck": {},
+        "smallcaps": {
+            "a": "ᴀ", "b": "ʙ", "c": "ᴄ", "d": "ᴅ", "e": "ᴇ", "f": "ꜰ", "g": "ɢ", "h": "ʜ", "i": "ɪ",
+            "j": "ᴊ", "k": "ᴋ", "l": "ʟ", "m": "ᴍ", "n": "ɴ", "o": "ᴏ", "p": "ᴘ", "q": "ǫ", "r": "ʀ",
+            "s": "ѕ", "t": "ᴛ", "u": "ᴜ", "v": "ᴠ", "w": "ᴡ", "x": "x", "y": "ʏ", "z": "ᴢ",
+            "0": "₀", "1": "₁", "2": "₂", "3": "₃", "4": "₄", "5": "₅", "6": "₆", "7": "₇", "8": "₈", "9": "₉"
+        }
+    }
+    # Bold
+    for i in range(26):
+        maps["bold"][chr(ord('A') + i)] = chr(0x1D400 + i)
+        maps["bold"][chr(ord('a') + i)] = chr(0x1D41A + i)
+    for i in range(10):
+        maps["bold"][chr(ord('0') + i)] = chr(0x1D7CE + i)
+
+    # Italic
+    for i in range(26):
+        maps["italic"][chr(ord('A') + i)] = chr(0x210E if i == 7 else (0x1D434 + i))
+        maps["italic"][chr(ord('a') + i)] = chr(0x1D44E + i)
+
+    # Bold Italic
+    for i in range(26):
+        maps["bold_italic"][chr(ord('A') + i)] = chr(0x1D468 + i)
+        maps["bold_italic"][chr(ord('a') + i)] = chr(0x1D482 + i)
+
+    # Sans
+    for i in range(26):
+        maps["sans"][chr(ord('A') + i)] = chr(0x1D5A0 + i)
+        maps["sans"][chr(ord('a') + i)] = chr(0x1D5BA + i)
+    for i in range(10):
+        maps["sans"][chr(ord('0') + i)] = chr(0x1D7E2 + i)
+
+    # Sans Bold
+    for i in range(26):
+        maps["sans_bold"][chr(ord('A') + i)] = chr(0x1D5D4 + i)
+        maps["sans_bold"][chr(ord('a') + i)] = chr(0x1D5EE + i)
+    for i in range(10):
+        maps["sans_bold"][chr(ord('0') + i)] = chr(0x1D7EC + i)
+
+    # Sans Italic
+    for i in range(26):
+        maps["sans_italic"][chr(ord('A') + i)] = chr(0x1D608 + i)
+        maps["sans_italic"][chr(ord('a') + i)] = chr(0x1D622 + i)
+
+    # Monospace
+    for i in range(26):
+        maps["monospace"][chr(ord('A') + i)] = chr(0x1D670 + i)
+        maps["monospace"][chr(ord('a') + i)] = chr(0x1D68A + i)
+    for i in range(10):
+        maps["monospace"][chr(ord('0') + i)] = chr(0x1D7F6 + i)
+
+    # Double Struck
+    for i in range(26):
+        maps["double_struck"][chr(ord('A') + i)] = chr(0x1D538 + i)
+        maps["double_struck"][chr(ord('a') + i)] = chr(0x1D552 + i)
+    for i in range(10):
+        maps["double_struck"][chr(ord('0') + i)] = chr(0x1D7D8 + i)
+
+    return maps
+
+FONT_MAPS = _generate_font_maps()
+SMALLCAPS_INVERSE = {v: k for k, v in FONT_MAPS["smallcaps"].items()}
+
+
+def apply_font(text: str, font_style: Optional[str]) -> str:
+    """Applies a unicode font style or mirrors the font of a user-provided sample string."""
+    if not font_style or font_style.strip().lower() in ["normal", "none", "standard", "default", ""]:
+        return text
+
+    style_clean = font_style.strip().lower().replace("-", "_").replace(" ", "_")
+    mapping = FONT_MAPS.get(style_clean)
+
+    if not mapping:
+        alias_dict = {
+            "mono": "monospace",
+            "code": "monospace",
+            "sans_serif": "sans",
+            "sansserif": "sans",
+            "bolditalic": "bold_italic",
+            "sansbold": "sans_bold",
+            "small_caps": "smallcaps",
+            "small": "smallcaps",
+            "doublestruck": "double_struck",
+            "outline": "double_struck"
+        }
+        mapped_key = alias_dict.get(style_clean)
+        if mapped_key:
+            mapping = FONT_MAPS.get(mapped_key)
+
+    # If font_style contains sample unicode characters (e.g. user pasted '𝐥𝐨𝐠' or '𝔩𝔬𝔤' or 'ʟᴏɢ')
+    if not mapping:
+        for char in font_style:
+            for _, f_map in FONT_MAPS.items():
+                if char in f_map.values():
+                    mapping = f_map
+                    break
+            if mapping:
+                break
+
+    if not mapping:
+        return text
+
+    return "".join(mapping.get(c, c) for c in text)
+
+
+def normalize_log_name(name: str) -> str:
+    """Normalizes custom fonts (mathematical bold/sans/script, smallcaps) and separators into lowercase ASCII."""
+    import unicodedata
+    name = "".join(SMALLCAPS_INVERSE.get(c, c) for c in name)
+    return unicodedata.normalize("NFKD", name).lower().strip()
+
+
 def matches_log_channel(channel_name: str, ch_key: str) -> bool:
-    """Smart matching for existing log channels across legacy (. 𝚲 · <key> .), standard (log-<name>), and custom formats."""
-    cname = channel_name.lower().strip()
+    """Smart matching for existing log channels across legacy, standard (log-<name>), and custom formats."""
+    cname = normalize_log_name(channel_name)
     config = LOG_CHANNEL_CONFIG.get(ch_key)
     if not config:
         formatted = ch_key.replace("_", "-")
@@ -244,35 +367,51 @@ def matches_log_channel(channel_name: str, ch_key: str) -> bool:
 
     target_name, _, aliases = config
 
-    # 1. Exact match with new target name (e.g. "log-messages")
+    # 1. Exact match with target name (e.g. "log-messages")
     if cname == target_name or cname == target_name.replace("-", "_"):
         return True
 
-    # 2. Contains full target name (e.g. "🔒-log-messages")
-    if target_name in cname:
+    # 2. Contains full target name (e.g. "🔒-log-messages", "𝚲 | log-messages")
+    if target_name in cname or target_name.replace("-", "_") in cname:
         return True
 
     formatted = ch_key.replace("_", "-")
 
-    # 3. Legacy bot format: contains 𝚲 and (formatted or alias)
-    if "𝚲" in channel_name:
+    # 3. Legacy bot format: contains 𝚲 (or normalized 'λ') and (formatted or alias)
+    if "𝚲" in channel_name or "λ" in cname:
         if formatted in cname or ch_key in cname:
             return True
         for alias in aliases:
             if alias in cname:
                 return True
 
-    # 4. Standard slug formats: e.g. "log-mod", "log-message", "mod-log", "message-log"
-    if "log" in cname:
+    # 4. Standard and custom formatted slug matching (requires 'log', separator, or audit indicator)
+    # This prevents false positives on standard community channels like #general or #announcements
+    has_log_indicator = any(x in cname for x in ["log", "audit", "|", "•", "·", "𝚲"])
+    if has_log_indicator:
         if formatted in cname or ch_key in cname:
             return True
         for alias in aliases:
-            if f"log-{alias}" in cname or f"{alias}-log" in cname or f"log_{alias}" in cname or f"{alias}_log" in cname or f"· {alias}" in cname:
+            if (
+                f"log-{alias}" in cname or f"{alias}-log" in cname or
+                f"log_{alias}" in cname or f"{alias}_log" in cname or
+                f"log {alias}" in cname or f"{alias} log" in cname or
+                f"log|{alias}" in cname or f"{alias}|log" in cname or
+                f"log•{alias}" in cname or f"{alias}•log" in cname or
+                f"· {alias}" in cname or f"| {alias}" in cname or
+                f"|{alias}" in cname or f"• {alias}" in cname
+            ):
                 return True
 
-    # 5. Exact key match (e.g. channel named "message" or "messages" or "antinuke")
-    if cname == formatted or cname == ch_key:
-        return True
+        # Normalized alphanumeric check when log indicator is present
+        cname_clean = re.sub(r"[^a-z0-9]", "", cname)
+        key_clean = re.sub(r"[^a-z0-9]", "", ch_key)
+        if key_clean and key_clean in cname_clean and ("log" in cname_clean or "audit" in cname_clean):
+            return True
+        for alias in aliases:
+            alias_clean = re.sub(r"[^a-z0-9]", "", alias)
+            if alias_clean and alias_clean in cname_clean and ("log" in cname_clean or "audit" in cname_clean):
+                return True
 
     return False
 
@@ -1267,9 +1406,12 @@ class SecurityAdmin(commands.Cog, name="security"):
         guild: discord.Guild,
         prefix: Optional[str] = None,
         allowed_role: Optional[discord.Role] = None,
-        category_name: Optional[str] = None
+        category_name: Optional[str] = None,
+        font_style: Optional[str] = None,
+        separator: Optional[str] = None,
+        **kwargs
     ) -> Tuple[bool, str, Optional[discord.CategoryChannel], int, Optional[discord.Embed]]:
-        """Sets up or updates the full 32-channel logging suite with log- prefix channels.
+        """Sets up or updates the full 33-channel logging suite with customizable prefix, separator, and fonts.
         Renames existing channels to the new format instead of creating duplicates.
         """
         me = guild.me
@@ -1277,9 +1419,9 @@ class SecurityAdmin(commands.Cog, name="security"):
             return False, "Bot lacks the 'Manage Channels' permission.", None, 0, None
 
         # Determine target category name
-        if category_name:
+        if category_name and category_name.strip():
             target_category_name = category_name.strip()
-        elif prefix and prefix.strip() not in ["𝚲", ""]:
+        elif prefix and prefix.strip() not in ["𝚲", "", "log"]:
             target_category_name = f"📁 {prefix.strip()} Server Logs"
         else:
             target_category_name = "📁 Server Logs"
@@ -1338,9 +1480,30 @@ class SecurityAdmin(commands.Cog, name="security"):
             renamed_count = 0
             created_count = 0
 
+            has_custom = (
+                prefix is not None or
+                separator is not None or
+                (font_style and font_style.strip().lower() not in ["normal", "none", "standard", "default", ""])
+            )
+            pref = prefix.strip() if prefix is not None else "log"
+            sep = separator.strip() if separator is not None else "-"
+            if not sep and pref:
+                sep = "-"
+
             for ch_key, ch_topic in self.FULL_LOG_CHANNELS:
                 config = LOG_CHANNEL_CONFIG.get(ch_key, (f"log-{ch_key.replace('_', '-')}", ch_topic, [ch_key]))
-                target_name = config[0]
+                core_name = ch_key.replace("_", "-")
+
+                if has_custom:
+                    styled_core = apply_font(core_name, font_style) if font_style else core_name
+                    if pref:
+                        target_name = f"{pref}{sep}{styled_core}"
+                    else:
+                        target_name = f"{styled_core}"
+                else:
+                    target_name = config[0]
+
+                target_name = target_name[:100]
 
                 # 1. Check if already bound in cache
                 ch = None
@@ -1607,31 +1770,45 @@ class SecurityAdmin(commands.Cog, name="security"):
         self,
         interaction: discord.Interaction,
         prefix: Optional[str] = None,
-        allowed_role: Optional[discord.Role] = None
-    ):
+        allowed_role: Optional[discord.Role] = None,
+        category_name: Optional[str] = None,
+        font_style: Optional[str] = None,
+        separator: Optional[str] = None,
+        **kwargs
+    ) -> Tuple[bool, str, Optional[discord.CategoryChannel], int, Optional[discord.Embed]]:
         """Worker that defers interaction, performs permission checks, and triggers category/channel generation or updates."""
-        # Defer immediately so Discord never times out
-        await interaction.response.defer(ephemeral=True)
+        if not interaction.response.is_done():
+            await interaction.response.defer(ephemeral=True)
 
         if not self._check_mod(interaction):
             await interaction.followup.send("❌ Moderator permissions required.", ephemeral=True)
-            return
+            return False, "Moderator permissions required.", None, 0, None
 
         guild = interaction.guild
         if not guild:
             await interaction.followup.send("❌ This command can only be used in a server.", ephemeral=True)
-            return
+            return False, "This command can only be used in a server.", None, 0, None
 
         me = guild.me
         if not me.guild_permissions.manage_channels:
             await interaction.followup.send("❌ Bot lacks the **'Manage Channels'** permission to create or edit channels.", ephemeral=True)
-            return
+            return False, "Bot lacks Manage Channels permission.", None, 0, None
 
-        success, err, category, count, embed = await self._execute_setup_full_suite(guild, prefix=prefix, allowed_role=allowed_role)
+        success, err, category, count, embed = await self._execute_setup_full_suite(
+            guild,
+            prefix=prefix,
+            allowed_role=allowed_role,
+            category_name=category_name,
+            font_style=font_style,
+            separator=separator,
+            **kwargs
+        )
         if success and embed:
             await interaction.followup.send(embed=embed, ephemeral=True)
         else:
             await interaction.followup.send(f"❌ Error setting up logging suite: `{err}`", ephemeral=True)
+
+        return success, err, category, count, embed
 
     async def cmd_setup(self, interaction: discord.Interaction):
         if not self._check_mod(interaction):
@@ -1894,11 +2071,37 @@ class ShortCommands(commands.Cog):
 
     @app_commands.command(name="logs", description="[Admins Only] Open 33-channel logging control embed or run 1-click setup.")
     @app_commands.describe(
-        prefix="Optional tag prefix (default: '𝚲')",
+        action="Leave empty to open control embed, or select 'setup' to run setup directly",
+        prefix="Optional tag prefix (e.g. 'log', '𝚲')",
+        separator="Optional separator between prefix and channel name (e.g. '-', '|', '•')",
+        font_style="Optional font style (normal, bold, sans, italic, monospace, smallcaps, or sample text)",
         allowed_role="Optional: Extra staff/moderator role allowed to see these private log channels"
     )
-    async def cmd_short_logs(self, interaction: discord.Interaction, prefix: Optional[str] = "𝚲", allowed_role: Optional[discord.Role] = None):
-        if prefix == "𝚲" and allowed_role is None:
+    @app_commands.choices(
+        action=[
+            app_commands.Choice(name="Open Dashboard Embed", value="dashboard"),
+            app_commands.Choice(name="Run Full 33-Channel Setup", value="setup")
+        ],
+        font_style=[
+            app_commands.Choice(name="Normal / Standard (default)", value="normal"),
+            app_commands.Choice(name="Bold (𝐛𝐨𝐥𝐝)", value="bold"),
+            app_commands.Choice(name="Sans-Serif (𝗌𝖺𝗇𝗌)", value="sans"),
+            app_commands.Choice(name="Sans-Serif Bold (𝘀𝗮𝗻𝘀)", value="sans_bold"),
+            app_commands.Choice(name="Monospace (𝚖𝚘𝚗𝚘)", value="monospace"),
+            app_commands.Choice(name="Italic (𝘪𝘵𝘢𝘭𝘪𝘤)", value="italic"),
+            app_commands.Choice(name="Small Caps (ꜱᴍᴀʟʟ)", value="smallcaps"),
+        ]
+    )
+    async def cmd_short_logs(
+        self,
+        interaction: discord.Interaction,
+        action: Optional[str] = None,
+        prefix: Optional[str] = "𝚲",
+        separator: Optional[str] = None,
+        font_style: Optional[str] = None,
+        allowed_role: Optional[discord.Role] = None
+    ):
+        if action != "setup" and prefix == "𝚲" and separator is None and font_style is None and allowed_role is None:
             from src.cogs.control_center import LogsControlView
             total = len(self.admin.FULL_LOG_CHANNELS)
             bound = sum(1 for k, _ in self.admin.FULL_LOG_CHANNELS if (interaction.guild.id, k) in bot_config.guild_log_channels_cache)
@@ -1911,7 +2114,7 @@ class ShortCommands(commands.Cog):
                     f"**Coverage:** `{bound}/{total}` active log channels online\n"
                     f"**Alert Channel:** {alert_str}\n"
                     f"**Bot Command Tracking:** Dedicated `#log-bot-commands` channel with proxy attribution\n\n"
-                    f"👉 **Click '1-Click Setup'** below to create/update all 33 channels under `{prefix} SERVER LOGS`,\n"
+                    f"👉 **Click '1-Click Setup'** below to configure prefix, font, separator, and channels,\n"
                     f"or click **'Zero-Creation Sync'** to bind existing channels."
                 ),
                 timestamp=datetime.now(timezone.utc)
@@ -1920,7 +2123,13 @@ class ShortCommands(commands.Cog):
             view = LogsControlView(self.bot, interaction.guild)
             await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
             return
-        await self.admin._handle_setup_full_suite(interaction, prefix=prefix, allowed_role=allowed_role)
+        await self.admin._handle_setup_full_suite(
+            interaction,
+            prefix=prefix,
+            allowed_role=allowed_role,
+            separator=separator,
+            font_style=font_style
+        )
 
     async def cmd_short_vcban(self, interaction: discord.Interaction, member: discord.Member, reason: Optional[str] = None, duration_hours: Optional[int] = None):
         await self._call(self.admin.cmd_vc_ban, interaction, member=member, reason=reason, duration_hours=duration_hours)

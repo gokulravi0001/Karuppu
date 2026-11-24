@@ -5,7 +5,7 @@ import os
 import sys
 import asyncio
 import logging
-from typing import Optional
+from typing import Optional, Dict, Any, List
 from datetime import datetime, timezone
 import aiohttp
 from aiohttp import web
@@ -61,7 +61,7 @@ class SecurityBot(commands.Bot):
         data = {
             "status": "healthy" if is_ready else "starting",
             "bot": "Karuppu Security Bot",
-            "version": "1.3.2",
+            "version": "1.3.3",
             "latency_ms": round(self.latency * 1000) if is_ready and self.latency is not None else None,
             "guilds": len(self.guilds) if is_ready else 0,
             "cogs": list(self.cogs.keys()),

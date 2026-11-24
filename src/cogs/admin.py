@@ -6,7 +6,7 @@ import logging
 import re
 import unicodedata
 from datetime import datetime, timezone, timedelta
-from typing import Optional, List, Tuple, Any, Dict
+from typing import Optional, List, Tuple, Any, Dict, Union
 import discord
 from discord import app_commands
 from discord.ext import commands

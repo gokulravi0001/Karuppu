@@ -166,6 +166,7 @@ class SecurityBot(commands.Bot):
             "src.cogs.lockdown",
             "src.cogs.quarantine",
             "src.cogs.admin",
+            "src.cogs.control_center",
             "src.cogs.help",
             "src.cogs.logging_system"
         ]

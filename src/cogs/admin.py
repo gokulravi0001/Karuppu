@@ -293,7 +293,7 @@ async def log_channel_autocomplete_fn(
     return matches
 
 
-class SecurityAdmin(commands.GroupCog, name="security"):
+class SecurityAdmin(commands.Cog, name="security"):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         super().__init__()
@@ -420,17 +420,6 @@ class SecurityAdmin(commands.GroupCog, name="security"):
     # ==========================================
     # SERVER ROLE SELECTION & PUBLIC SETUP
     # ==========================================
-    @app_commands.command(name="set_role", description="[Admins Only] Select which role unlocks a specific security permission.")
-    @app_commands.describe(
-        gate="Which security gate to configure",
-        role="The role required to unlock this privilege"
-    )
-    @app_commands.choices(gate=[
-        app_commands.Choice(name="External Links & URLs (Link Gate)", value="links"),
-        app_commands.Choice(name="GIFs & Media Attachments (Media Gate)", value="media"),
-        app_commands.Choice(name="ZIP / RAR Archives (Archive Gate)", value="archives"),
-        app_commands.Choice(name="Discord Server Invites (Invite Gate)", value="invites"),
-    ])
     async def cmd_set_role(self, interaction: discord.Interaction, gate: app_commands.Choice[str], role: discord.Role):
         if not self._check_mod(interaction):
             await interaction.response.send_message("❌ Moderator permissions required.", ephemeral=True)
@@ -475,11 +464,6 @@ class SecurityAdmin(commands.GroupCog, name="security"):
 
         return False, allowed_role_name
 
-    @app_commands.command(
-        name="set_unmute_role",
-        description="[Owner Only] Select which role is authorized to reverse server mutes."
-    )
-    @app_commands.describe(role="The role authorized to reverse server mutes")
     async def cmd_set_unmute_role(self, interaction: discord.Interaction, role: discord.Role):
         if not self._check_owner(interaction):
             await interaction.response.send_message("❌ **Access Denied**: Only the Server Owner can configure the unmute role.", ephemeral=True)
@@ -504,14 +488,6 @@ class SecurityAdmin(commands.GroupCog, name="security"):
         embed.set_footer(text=f"Configured by Server Owner ({interaction.user})")
         await interaction.response.send_message(embed=embed)
 
-    @app_commands.command(
-        name="unmute",
-        description="Reverse a server mute and restore voice permissions for a member."
-    )
-    @app_commands.describe(
-        member="The member whose server mute should be reversed",
-        reason="Reason for reversing the mute (optional)"
-    )
     async def cmd_unmute(
         self,
         interaction: discord.Interaction,
@@ -614,14 +590,7 @@ class SecurityAdmin(commands.GroupCog, name="security"):
     # ==========================================
     # VOICE CHANNEL MODERATION: KICK, TIMEOUT & BAN
     # ==========================================
-    @app_commands.command(
-        name="vc_kick",
-        description="[Mods Only] Immediately kick/disconnect a member from voice channels."
-    )
-    @app_commands.describe(
-        member="The member to disconnect from voice",
-        reason="Reason for kicking from voice (optional)"
-    )
+    # Voice Moderation Actions (Internal / Panel & /voice Actions)
     async def cmd_vc_kick(
         self,
         interaction: discord.Interaction,
@@ -697,15 +666,6 @@ class SecurityAdmin(commands.GroupCog, name="security"):
             logger.exception("Error executing cmd_vc_kick: %s", e)
             await interaction.followup.send(f"❌ Error executing VC kick: `{e}`", ephemeral=True)
 
-    @app_commands.command(
-        name="vc_timeout",
-        description="[Mods Only] Temporarily block and mute a member from all voice channels."
-    )
-    @app_commands.describe(
-        member="The member to timeout from voice",
-        duration_minutes="Duration in minutes (e.g. 5, 15, 60, 1440)",
-        reason="Reason for the voice timeout (optional)"
-    )
     async def cmd_vc_timeout(
         self,
         interaction: discord.Interaction,
@@ -831,14 +791,6 @@ class SecurityAdmin(commands.GroupCog, name="security"):
             logger.exception("Error executing cmd_vc_timeout: %s", e)
             await interaction.followup.send(f"❌ Error applying voice timeout: `{e}`", ephemeral=True)
 
-    @app_commands.command(
-        name="vc_untimeout",
-        description="[Mods Only] Lift an active voice timeout from a member early."
-    )
-    @app_commands.describe(
-        member="The member whose voice timeout should be removed",
-        reason="Reason for lifting the timeout (optional)"
-    )
     async def cmd_vc_untimeout(
         self,
         interaction: discord.Interaction,
@@ -892,27 +844,13 @@ class SecurityAdmin(commands.GroupCog, name="security"):
             logger.exception("Error executing cmd_vc_untimeout: %s", e)
             await interaction.followup.send(f"❌ Error lifting voice timeout: `{e}`", ephemeral=True)
 
-    @app_commands.command(
-        name="vc_ban",
-        description="[Mods Only] Ban a member from joining any voice channel."
-    )
-    @app_commands.describe(
-        member="The member to ban from voice channels",
-        reason="Reason for voice channel ban (optional)",
-        duration_hours="Optional duration in hours (leave empty or 0 for permanent)",
-        scope="Scope: 'server' (this server only) or 'global' (all servers guarded by Karuppu)"
-    )
-    @app_commands.choices(scope=[
-        app_commands.Choice(name="🏢 This Server Only (Default)", value="server"),
-        app_commands.Choice(name="🌐 Global (All Servers with Karuppu)", value="global")
-    ])
     async def cmd_vc_ban(
         self,
         interaction: discord.Interaction,
         member: discord.Member,
         reason: Optional[str] = "Voice Channel Moderation Ban",
         duration_hours: Optional[int] = None,
-        scope: Optional[app_commands.Choice[str]] = None
+        scope: Optional[Union[app_commands.Choice[str], str]] = None
     ):
         if not self._check_mod(interaction):
             await interaction.response.send_message("❌ Moderator permissions required.", ephemeral=True)
@@ -932,7 +870,8 @@ class SecurityAdmin(commands.GroupCog, name="security"):
         await interaction.response.defer()
 
         try:
-            target_guild_id = 0 if (scope and scope.value == "global") else guild.id
+            scope_val = scope.value if hasattr(scope, "value") else (scope or "server")
+            target_guild_id = 0 if scope_val == "global" else guild.id
             is_global = target_guild_id == 0
 
             now_utc = datetime.now(timezone.utc)
@@ -1035,14 +974,6 @@ class SecurityAdmin(commands.GroupCog, name="security"):
             logger.exception("Error executing cmd_vc_ban: %s", e)
             await interaction.followup.send(f"❌ Error applying voice ban: `{e}`", ephemeral=True)
 
-    @app_commands.command(
-        name="vc_unban",
-        description="[Mods Only] Revoke a voice channel ban for a user."
-    )
-    @app_commands.describe(
-        user="The user to unban from voice channels",
-        reason="Reason for revoking the voice ban (optional)"
-    )
     async def cmd_vc_unban(
         self,
         interaction: discord.Interaction,
@@ -1098,10 +1029,6 @@ class SecurityAdmin(commands.GroupCog, name="security"):
             logger.exception("Error executing cmd_vc_unban: %s", e)
             await interaction.followup.send(f"❌ Error revoking voice ban: `{e}`", ephemeral=True)
 
-    @app_commands.command(
-        name="vc_banlist",
-        description="[Mods Only] View active voice channel bans and timeouts in this server."
-    )
     async def cmd_vc_banlist(self, interaction: discord.Interaction):
         if not self._check_mod(interaction):
             await interaction.response.send_message("❌ Moderator permissions required.", ephemeral=True)
@@ -1156,12 +1083,8 @@ class SecurityAdmin(commands.GroupCog, name="security"):
             await interaction.followup.send(f"❌ Error fetching active voice punishments: `{e}`", ephemeral=True)
 
     # ==========================================
-    # 24/7 VOICE GUARD CONNECTION COMMANDS
+    # 24/7 VOICE GUARD CONNECTION COMMANDS (Internal / Panel & /voice Actions)
     # ==========================================
-    vc_guard_group = app_commands.Group(name="vc_guard", description="Connect or manage 24/7 Voice Guard in a voice channel")
-
-    @vc_guard_group.command(name="join", description="Connect the bot into a voice channel as a 24/7 Voice Guard.")
-    @app_commands.describe(channel="The voice channel to guard (optional: joins your current VC if omitted)")
     async def cmd_vc_guard_join(self, interaction: discord.Interaction, channel: Optional[discord.VoiceChannel] = None):
         if not self._check_mod(interaction):
             await interaction.response.send_message("❌ Moderator permissions required.", ephemeral=True)
@@ -1217,7 +1140,6 @@ class SecurityAdmin(commands.GroupCog, name="security"):
             logger.error("Failed to connect Voice Guard to %s: %s", target_channel.name, e)
             await interaction.followup.send(f"❌ Failed to connect Voice Guard: `{e}`")
 
-    @vc_guard_group.command(name="leave", description="Disconnect the bot from the voice channel.")
     async def cmd_vc_guard_leave(self, interaction: discord.Interaction):
         if not self._check_mod(interaction):
             await interaction.response.send_message("❌ Moderator permissions required.", ephemeral=True)
@@ -1248,7 +1170,6 @@ class SecurityAdmin(commands.GroupCog, name="security"):
         except Exception as e:
             await interaction.response.send_message(f"❌ Failed to disconnect: `{e}`", ephemeral=True)
 
-    @vc_guard_group.command(name="status", description="Check current Voice Guard connection status and channel.")
     async def cmd_vc_guard_status(self, interaction: discord.Interaction):
         if not self._check_mod(interaction):
             await interaction.response.send_message("❌ Moderator permissions required.", ephemeral=True)
@@ -1278,8 +1199,6 @@ class SecurityAdmin(commands.GroupCog, name="security"):
         )
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
-    @app_commands.command(name="set_alert_channel", description="[Admins Only] Select the channel where security alerts and mod cards are sent.")
-    @app_commands.describe(channel="The channel for mod logs and raid alerts")
     async def cmd_set_alert_channel(self, interaction: discord.Interaction, channel: discord.TextChannel):
         if not self._check_mod(interaction):
             await interaction.response.send_message("❌ Moderator permissions required.", ephemeral=True)
@@ -1303,12 +1222,6 @@ class SecurityAdmin(commands.GroupCog, name="security"):
 
     FULL_LOG_CHANNELS = FULL_LOG_CHANNELS
 
-    @app_commands.command(name="set_log_channel", description="[Admins Only] Assign a dedicated channel for a specific log type.")
-    @app_commands.describe(
-        category="Which log category to configure (type to search all 28 categories)",
-        channel="The channel where these logs should be posted"
-    )
-    @app_commands.autocomplete(category=log_channel_autocomplete_fn)
     async def cmd_set_log_channel(self, interaction: discord.Interaction, category: str, channel: discord.TextChannel):
         if not self._check_mod(interaction):
             await interaction.response.send_message("❌ Moderator permissions required.", ephemeral=True)
@@ -1720,7 +1633,6 @@ class SecurityAdmin(commands.GroupCog, name="security"):
         else:
             await interaction.followup.send(f"❌ Error setting up logging suite: `{err}`", ephemeral=True)
 
-    @app_commands.command(name="setup", description="View current security configuration and level role gates for this server.")
     async def cmd_setup(self, interaction: discord.Interaction):
         if not self._check_mod(interaction):
             await interaction.response.send_message("❌ Moderator permissions required.", ephemeral=True)
@@ -1787,8 +1699,6 @@ class SecurityAdmin(commands.GroupCog, name="security"):
     # ==========================================
     # MODERATION & OPERATIONAL CONTROLS
     # ==========================================
-    @app_commands.command(name="lockdown", description="Activate a temporary emergency lockdown on public channels.")
-    @app_commands.describe(duration_minutes="Duration in minutes (default 15, max 120)", reason="Reason for lockdown")
     async def cmd_lockdown(self, interaction: discord.Interaction, duration_minutes: Optional[int] = 15, reason: Optional[str] = "Emergency Moderation Lockdown"):
         if not self._check_mod(interaction):
             await interaction.response.send_message("❌ Moderator permissions required to initiate lockdown.", ephemeral=True)
@@ -1846,12 +1756,6 @@ class SecurityAdmin(commands.GroupCog, name="security"):
         else:
             await interaction.followup.send(f"ℹ️ {msg}", ephemeral=True)
 
-    @app_commands.command(name="purge_raid", description="[Admins Only] One-click purge of all accounts that joined during a raid wave.")
-    @app_commands.describe(
-        within_minutes="How many minutes ago the raid started (default 15, max 60)",
-        require_no_roles="Only purge members with 0 roles (default True to protect regular members)",
-        action="Action to execute: 'kick' or 'ban' (default kick)"
-    )
     async def cmd_purge_raid(
         self,
         interaction: discord.Interaction,
@@ -1909,7 +1813,6 @@ class SecurityAdmin(commands.GroupCog, name="security"):
         view = RaidPurgeConfirmView(candidates=candidates, action_type=action_type, moderator=interaction.user)
         await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
-    @app_commands.command(name="toggle_dry_run", description="Toggle between Dry-Run (Alert Only) and Active Enforcement.")
     async def cmd_toggle_dry_run(self, interaction: discord.Interaction):
         if not self._check_mod(interaction):
             await interaction.response.send_message("❌ Moderator permissions required.", ephemeral=True)
@@ -1989,103 +1892,75 @@ class ShortCommands(commands.Cog):
             return await cmd_target.callback(self.admin, *args, **kwargs)
         return await cmd_target(*args, **kwargs)
 
-    @app_commands.command(name="logs", description="[Admins Only] 1-Click setup/update of 32-channel logging suite with log- prefix.")
+    @app_commands.command(name="logs", description="[Admins Only] Open 33-channel logging control embed or run 1-click setup.")
     @app_commands.describe(
         prefix="Optional tag prefix (default: '𝚲')",
         allowed_role="Optional: Extra staff/moderator role allowed to see these private log channels"
     )
     async def cmd_short_logs(self, interaction: discord.Interaction, prefix: Optional[str] = "𝚲", allowed_role: Optional[discord.Role] = None):
+        if prefix == "𝚲" and allowed_role is None:
+            from src.cogs.control_center import LogsControlView
+            total = len(self.admin.FULL_LOG_CHANNELS)
+            bound = sum(1 for k, _ in self.admin.FULL_LOG_CHANNELS if (interaction.guild.id, k) in bot_config.guild_log_channels_cache)
+            alert_id = bot_config.get_alert_channel_id(interaction.guild.id)
+            alert_str = f"<#{alert_id}>" if alert_id else "*None set*"
+            embed = discord.Embed(
+                title="📜 33-Channel Audit & Logging Suite Hub",
+                color=discord.Color.green() if bound >= total else discord.Color.gold(),
+                description=(
+                    f"**Coverage:** `{bound}/{total}` active log channels online\n"
+                    f"**Alert Channel:** {alert_str}\n"
+                    f"**Bot Command Tracking:** Dedicated `#log-bot-commands` channel with proxy attribution\n\n"
+                    f"👉 **Click '1-Click Setup'** below to create/update all 33 channels under `{prefix} SERVER LOGS`,\n"
+                    f"or click **'Zero-Creation Sync'** to bind existing channels."
+                ),
+                timestamp=datetime.now(timezone.utc)
+            )
+            embed.set_footer(text="Karuppu Audit & Logging Engine")
+            view = LogsControlView(self.bot, interaction.guild)
+            await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+            return
         await self.admin._handle_setup_full_suite(interaction, prefix=prefix, allowed_role=allowed_role)
 
-    @app_commands.command(name="vcban", description="Ban a member from connecting to voice channels.")
-    @app_commands.describe(
-        member="The member to ban from all voice channels",
-        reason="Reason for the voice ban",
-        duration_hours="Temporary ban duration in hours (leave empty for permanent)"
-    )
     async def cmd_short_vcban(self, interaction: discord.Interaction, member: discord.Member, reason: Optional[str] = None, duration_hours: Optional[int] = None):
         await self._call(self.admin.cmd_vc_ban, interaction, member=member, reason=reason, duration_hours=duration_hours)
 
-    @app_commands.command(name="vcunban", description="Unban a member from voice channels.")
-    @app_commands.describe(
-        user="The user to unban from voice (mention or ID)",
-        reason="Reason for lifting the voice ban"
-    )
     async def cmd_short_vcunban(self, interaction: discord.Interaction, user: discord.User, reason: Optional[str] = None):
         await self._call(self.admin.cmd_vc_unban, interaction, user=user, reason=reason)
 
-    @app_commands.command(name="vckick", description="Kick/disconnect a member from voice immediately.")
-    @app_commands.describe(
-        member="The member currently in voice to disconnect",
-        reason="Reason for the voice kick"
-    )
     async def cmd_short_vckick(self, interaction: discord.Interaction, member: discord.Member, reason: Optional[str] = None):
         await self._call(self.admin.cmd_vc_kick, interaction, member=member, reason=reason)
 
-    @app_commands.command(name="vctimeout", description="Timeout and block a member from voice channels for X minutes.")
-    @app_commands.describe(
-        member="The member to timeout from voice",
-        duration_minutes="Timeout duration in minutes (e.g. 5, 10, 60)",
-        reason="Reason for the voice timeout"
-    )
     async def cmd_short_vctimeout(self, interaction: discord.Interaction, member: discord.Member, duration_minutes: int, reason: Optional[str] = None):
         await self._call(self.admin.cmd_vc_timeout, interaction, member=member, duration_minutes=duration_minutes, reason=reason)
 
-    @app_commands.command(name="vcuntimeout", description="Lift voice channel timeout early.")
-    @app_commands.describe(
-        member="The member whose voice timeout to lift",
-        reason="Reason for lifting timeout"
-    )
     async def cmd_short_vcuntimeout(self, interaction: discord.Interaction, member: discord.Member, reason: Optional[str] = None):
         await self._call(self.admin.cmd_vc_untimeout, interaction, member=member, reason=reason)
 
-    @app_commands.command(name="vcbans", description="View active voice bans and timeouts.")
     async def cmd_short_vcbans(self, interaction: discord.Interaction):
         await self._call(self.admin.cmd_vc_banlist, interaction)
 
-    @app_commands.command(name="lock", description="Activate temporary emergency lockdown on public channels.")
-    @app_commands.describe(
-        duration_minutes="Duration in minutes (1-1440, default: 30)",
-        reason="Reason for the lockdown"
-    )
     async def cmd_short_lock(self, interaction: discord.Interaction, duration_minutes: Optional[int] = 30, reason: Optional[str] = "Emergency containment"):
         await self._call(self.admin.cmd_lockdown, interaction, duration_minutes=duration_minutes, reason=reason)
 
-    @app_commands.command(name="unlock", description="Lift an active server lockdown immediately.")
     async def cmd_short_unlock(self, interaction: discord.Interaction):
         await self._call(self.admin.cmd_unlock, interaction)
 
-    @app_commands.command(name="purge", description="One-click purge of raid accounts.")
-    @app_commands.describe(
-        within_minutes="Scan accounts that joined in the last N minutes (default: 15)",
-        action="Purge action: ban or kick"
-    )
     async def cmd_short_purge(self, interaction: discord.Interaction, within_minutes: Optional[int] = 15, action: Optional[str] = "ban"):
         await self._call(self.admin.cmd_purge_raid, interaction, within_minutes=within_minutes, action=action)
 
-    @app_commands.command(name="setlog", description="[Admins Only] Assign dedicated channel for a log category.")
-    @app_commands.describe(
-        category="Which log category to configure (type to search)",
-        channel="The channel where these logs should be posted"
-    )
-    @app_commands.autocomplete(category=log_channel_autocomplete_fn)
     async def cmd_short_setlog(self, interaction: discord.Interaction, category: str, channel: discord.TextChannel):
         await self._call(self.admin.cmd_set_log_channel, interaction, category=category, channel=channel)
 
-    @app_commands.command(name="setalert", description="[Admins Only] Set channel for security alerts and raid cards.")
-    @app_commands.describe(channel="The channel for mod logs and raid alerts")
     async def cmd_short_setalert(self, interaction: discord.Interaction, channel: discord.TextChannel):
         await self._call(self.admin.cmd_set_alert_channel, interaction, channel=channel)
 
-    @app_commands.command(name="dryrun", description="Toggle between Dry-Run (Alert Only) and Active Enforcement.")
     async def cmd_short_dryrun(self, interaction: discord.Interaction):
         await self._call(self.admin.cmd_toggle_dry_run, interaction)
 
-    @app_commands.command(name="status", description="Displays security status, active rules, level gates, and health.")
     async def cmd_short_status(self, interaction: discord.Interaction):
         await self._call(self.admin.cmd_status, interaction)
 
-    @app_commands.command(name="logsync", description="[Admins Only] Zero-creation sync: Binds existing log channels without creating new ones.")
     async def cmd_short_logsync(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
         if not self.admin._check_mod(interaction):

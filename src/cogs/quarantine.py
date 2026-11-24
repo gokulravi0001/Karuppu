@@ -887,13 +887,36 @@ class QuarantineSystem(commands.Cog, name="quarantine"):
     # 1. /quarantine
     @app_commands.command(
         name="quarantine",
-        description="[Admins/Owner Only] Strip all roles and isolate a member indefinitely."
+        description="[Admins/Owner Only] Open Quarantine Control Embed or isolate a member."
     )
     @app_commands.describe(
-        member="The member to place into quarantine",
+        member="Optional: The member to place into quarantine (leave empty to open interactive panel)",
         reason="Reason for placing member in quarantine (optional)"
     )
-    async def slash_quarantine(self, interaction: discord.Interaction, member: discord.Member, reason: Optional[str] = "Quarantined by staff"):
+    async def slash_quarantine(self, interaction: discord.Interaction, member: Optional[discord.Member] = None, reason: Optional[str] = "Quarantined by staff"):
+        if member is None:
+            if not self._is_admin_or_owner(interaction.user, interaction.guild):
+                await interaction.response.send_message("❌ Administrator or Server Owner permissions required.", ephemeral=True)
+                return
+            from src.cogs.control_center import QuarantineControlView
+            records = await db.get_all_quarantined(interaction.guild.id)
+            count = len(records)
+            embed = discord.Embed(
+                title="🔒 Quarantine & Role Recovery Hub",
+                color=discord.Color.dark_red() if count > 0 else discord.Color.blue(),
+                description=(
+                    f"**Active Quarantines:** `{count}` member(s) currently isolated\n"
+                    f"**Role Recovery Engine:** SQLite Backups + Discord Audit Log Recovery\n"
+                    f"**Quarantine Isolation:** Hidden category with private chat & voice channels\n\n"
+                    f"*Click below to quarantine, unquarantine, or restore roles:*"
+                ),
+                timestamp=datetime.now(timezone.utc)
+            )
+            embed.set_footer(text="Karuppu Quarantine Subsystem")
+            view = QuarantineControlView(self.bot, interaction.guild)
+            await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+            return
+
         await interaction.response.defer(ephemeral=True)
         if not self._is_admin_or_owner(interaction.user, interaction.guild):
             await interaction.followup.send("❌ Only **Server Owners** and **Administrators** can quarantine members.", ephemeral=True)
@@ -912,14 +935,7 @@ class QuarantineSystem(commands.Cog, name="quarantine"):
         else:
             await interaction.followup.send(msg, ephemeral=True)
 
-    # 2. /quarantine_setup
-    @app_commands.command(
-        name="quarantine_setup",
-        description="[Admins Only] Setup quarantine role, create isolated category & channels."
-    )
-    @app_commands.describe(
-        role="The Quarantine role (will be given text and voice access to the new quarantine category)"
-    )
+    # 2. quarantine_setup (Internal / Panel Action)
     async def slash_quarantine_setup(
         self,
         interaction: discord.Interaction,
@@ -1026,11 +1042,7 @@ class QuarantineSystem(commands.Cog, name="quarantine"):
         embed.set_footer(text="Karuppu Quarantine Engine • Category & Channels Ready")
         await interaction.followup.send(embed=embed, ephemeral=True)
 
-    # 3. /quarantine_view
-    @app_commands.command(
-        name="quarantine_view",
-        description="[Admins/Owner Only] View all members currently in quarantine."
-    )
+    # 3. quarantine_view (Internal / Panel Action)
     async def slash_quarantine_view(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
         if not self._is_admin_or_owner(interaction.user, interaction.guild):
@@ -1072,15 +1084,7 @@ class QuarantineSystem(commands.Cog, name="quarantine"):
         embed.set_footer(text="Use /unquarantine to release a member and restore their roles.")
         await interaction.followup.send(embed=embed, ephemeral=True)
 
-    # 4. /unquarantine
-    @app_commands.command(
-        name="unquarantine",
-        description="[Admins/Owner Only] Lift quarantine and restore all original roles to a user."
-    )
-    @app_commands.describe(
-        member="The member you need to unquarantine and restore roles for (defaults to yourself)",
-        reason="Reason for lifting quarantine (optional)"
-    )
+    # 4. unquarantine (Internal / Panel Action)
     async def slash_unquarantine(
         self,
         interaction: discord.Interaction,
@@ -1099,14 +1103,7 @@ class QuarantineSystem(commands.Cog, name="quarantine"):
         else:
             await interaction.followup.send(msg, ephemeral=True)
 
-    # 5. /restore_roles
-    @app_commands.command(
-        name="restore_roles",
-        description="[Admin/Owner Only] Mention whom you need to restore previous roles for."
-    )
-    @app_commands.describe(
-        member="The member whose previous roles you need to restore (defaults to yourself)"
-    )
+    # 5. restore_roles (Internal / Panel Action)
     async def slash_restore_roles(
         self,
         interaction: discord.Interaction,

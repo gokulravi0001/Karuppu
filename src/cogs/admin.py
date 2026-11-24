@@ -2170,6 +2170,7 @@ class ShortCommands(commands.Cog):
     async def cmd_short_status(self, interaction: discord.Interaction):
         await self._call(self.admin.cmd_status, interaction)
 
+    @app_commands.command(name="logsync", description="[Admins Only] Zero-creation sync: Binds existing Discord log channels without creating new ones.")
     async def cmd_short_logsync(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
         if not self.admin._check_mod(interaction):

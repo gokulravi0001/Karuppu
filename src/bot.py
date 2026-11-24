@@ -42,14 +42,29 @@ class SecurityBot(commands.Bot):
         self.health_runner: web.AppRunner = None
         self.keep_alive_task: Optional[asyncio.Task] = None
 
+    def get_security_cog(self):
+        """Robustly locates the SecurityAdmin cog across all registered cogs and namespaces."""
+        cog = self.get_cog("security") or self.get_cog("SecurityAdmin")
+        if cog and hasattr(cog, "sync_existing_log_channels"):
+            return cog
+        for c in self.cogs.values():
+            if hasattr(c, "sync_existing_log_channels"):
+                return c
+            if hasattr(c, "admin") and hasattr(c.admin, "sync_existing_log_channels"):
+                return c.admin
+        return None
+
     async def _health_handler(self, request: web.Request) -> web.Response:
         """Endpoint for Render container health check probes & keep-alive monitors."""
         is_ready = self.is_ready()
         data = {
             "status": "healthy" if is_ready else "starting",
             "bot": "Karuppu Security Bot",
+            "version": "1.3.1",
             "latency_ms": round(self.latency * 1000) if is_ready and self.latency is not None else None,
             "guilds": len(self.guilds) if is_ready else 0,
+            "cogs": list(self.cogs.keys()),
+            "commands": [c.name for c in self.tree.get_commands()],
             "dry_run": bot_config.dry_run
         }
         return web.json_response(data, status=200)
@@ -190,7 +205,14 @@ class SecurityBot(commands.Bot):
         async def on_tree_error(interaction: discord.Interaction, error: discord.app_commands.AppCommandError):
             logger.error("Slash command error in '%s': %s", interaction.command.name if interaction.command else "Unknown", error, exc_info=error)
             try:
-                err_text = f"❌ Command error: `{error}`"
+                cmd_name = interaction.command.name if interaction.command else "command"
+                if isinstance(error, discord.app_commands.CommandNotFound):
+                    err_text = (
+                        f"ℹ️ Command `/{cmd_name}` is outdated or has been consolidated.\n"
+                        f"👉 **Available Hubs:** `/panel` • `/security` • `/logs` • `/logsync` • `/quarantine` • `/voice`"
+                    )
+                else:
+                    err_text = f"❌ Command error: `{error}`"
                 if interaction.response.is_done():
                     await interaction.followup.send(err_text, ephemeral=True)
                 else:
@@ -279,7 +301,7 @@ class SecurityBot(commands.Bot):
                 logger.warning("Could not sync commands to guild '%s': %s", guild.name, se)
 
         # 3. Auto-discover and bind existing log channels for all guilds (Zero-Creation Sync)
-        admin_cog = self.get_cog("security")
+        admin_cog = self.get_security_cog()
         for guild in self.guilds:
             try:
                 if admin_cog and hasattr(admin_cog, "sync_existing_log_channels"):
@@ -338,31 +360,35 @@ class SecurityBot(commands.Bot):
                 return
 
             status_msg = await message.channel.send("🔄 **Scanning server and syncing existing log channels (0 new channels/categories will be created)...**")
-            admin_cog = self.get_cog("security")
+            admin_cog = self.get_security_cog()
             if admin_cog and hasattr(admin_cog, "sync_existing_log_channels"):
-                count, category, bound, missing = await admin_cog.sync_existing_log_channels(message.guild)
-                from src.cogs.admin import FULL_LOG_CHANNELS
-                total = len(FULL_LOG_CHANNELS)
-                cat_desc = f"`{category.name}`" if category else "*Server Text Channels (No category)*"
-                embed = discord.Embed(
-                    title="🔄 Log Channels Synced (Zero-Creation Mode)",
-                    color=discord.Color.green(),
-                    description=(
-                        f"**Audit & Logging Engine Synced!**\n\n"
-                        f"📁 **Log Category:** {cat_desc}\n"
-                        f"⚡ **Channels Bound:** `{count}/{total}` active log channels\n"
-                        f"🛡️ **Zero-Creation Guarantee:** **0** new categories created, **0** new channels created.\n\n"
-                        f"✅ All {count} existing channels are bound and actively receiving log events!"
-                    ),
-                    timestamp=datetime.now(timezone.utc)
-                )
-                if bound:
-                    sample = [f"• `{k}` ➔ {ch.mention}" for k, ch in list(bound.items())[:12]]
-                    embed.add_field(name="Bound Channels (Sample)", value="\n".join(sample), inline=False)
-                embed.set_footer(text="Karuppu Log Sync Engine")
-                await status_msg.edit(content=None, embed=embed)
+                try:
+                    count, category, bound, missing = await admin_cog.sync_existing_log_channels(message.guild)
+                    from src.cogs.admin import FULL_LOG_CHANNELS
+                    total = len(FULL_LOG_CHANNELS)
+                    cat_desc = f"`{category.name}`" if category else "*Server Text Channels (No category)*"
+                    embed = discord.Embed(
+                        title="🔄 Log Channels Synced (Zero-Creation Mode)",
+                        color=discord.Color.green(),
+                        description=(
+                            f"**Audit & Logging Engine Synced!**\n\n"
+                            f"📁 **Log Category:** {cat_desc}\n"
+                            f"⚡ **Channels Bound:** `{count}/{total}` active log channels\n"
+                            f"🛡️ **Zero-Creation Guarantee:** **0** new categories created, **0** new channels created.\n\n"
+                            f"✅ All {count} existing channels are bound and actively receiving log events!"
+                        ),
+                        timestamp=datetime.now(timezone.utc)
+                    )
+                    if bound:
+                        sample = [f"• `{k}` ➔ {ch.mention}" for k, ch in list(bound.items())[:12]]
+                        embed.add_field(name="Bound Channels (Sample)", value="\n".join(sample), inline=False)
+                    embed.set_footer(text="Karuppu Log Sync Engine")
+                    await status_msg.edit(content=None, embed=embed)
+                except Exception as sync_err:
+                    logger.exception("Error syncing log channels: %s", sync_err)
+                    await status_msg.edit(content=f"❌ Error during channel sync: `{sync_err}`")
             else:
-                await status_msg.edit(content="❌ Security cog not ready.")
+                await status_msg.edit(content="❌ Security admin module is still initializing. Please retry in a few seconds.")
             return
 
         # Clean duplicates / sync command for owners and admins

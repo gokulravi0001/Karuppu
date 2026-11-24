@@ -41,6 +41,7 @@ class SecurityBot(commands.Bot):
         self.health_app: web.Application = web.Application()
         self.health_runner: web.AppRunner = None
         self.keep_alive_task: Optional[asyncio.Task] = None
+        self.extension_errors: Dict[str, str] = {}
 
     def get_security_cog(self):
         """Robustly locates the SecurityAdmin cog across all registered cogs and namespaces."""
@@ -60,11 +61,12 @@ class SecurityBot(commands.Bot):
         data = {
             "status": "healthy" if is_ready else "starting",
             "bot": "Karuppu Security Bot",
-            "version": "1.3.1",
+            "version": "1.3.2",
             "latency_ms": round(self.latency * 1000) if is_ready and self.latency is not None else None,
             "guilds": len(self.guilds) if is_ready else 0,
             "cogs": list(self.cogs.keys()),
             "commands": [c.name for c in self.tree.get_commands()],
+            "extension_errors": self.extension_errors,
             "dry_run": bot_config.dry_run
         }
         return web.json_response(data, status=200)
@@ -191,7 +193,10 @@ class SecurityBot(commands.Bot):
                 await self.load_extension(ext)
                 logger.info("Loaded extension: %s", ext)
             except Exception as e:
-                logger.error("Failed to load extension %s: %s", ext, e)
+                import traceback
+                tb = traceback.format_exc()
+                logger.error("Failed to load extension %s: %s\n%s", ext, e, tb)
+                self.extension_errors[ext] = f"{type(e).__name__}: {e}\n{tb}"
 
         # 4. Start health check server if not already running
         if self.health_runner is None:

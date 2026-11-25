@@ -14,6 +14,10 @@ from discord.ext import commands, tasks
 from src.config import bot_config
 from src.database import db
 from src.dashboard.views import setup_dashboard_routes
+from src.core.logger import attach_core_logger, auto_maintenance_monitor, ring_buffer_handler
+from src.core.security import security_manager
+from src.core.i18n import i18n
+from src.core.cooldown import cooldown_manager
 
 # Configure structured logging
 logging.basicConfig(
@@ -42,6 +46,9 @@ class SecurityBot(commands.Bot):
         self.health_runner: web.AppRunner = None
         self.keep_alive_task: Optional[asyncio.Task] = None
         self.extension_errors: Dict[str, str] = {}
+        # Attach centralized logging & error monitoring
+        attach_core_logger("security_bot")
+        auto_maintenance_monitor.set_bot(self)
 
     def get_security_cog(self):
         """Robustly locates the SecurityAdmin cog across all registered cogs and namespaces."""
@@ -58,14 +65,16 @@ class SecurityBot(commands.Bot):
     async def _health_handler(self, request: web.Request) -> web.Response:
         """Endpoint for Render container health check probes & keep-alive monitors."""
         is_ready = self.is_ready()
+        auto_status = auto_maintenance_monitor.get_status()
         data = {
             "status": "healthy" if is_ready else "starting",
             "bot": "Karuppu Security Bot",
-            "version": "1.3.3",
+            "version": "1.4.0",
             "latency_ms": round(self.latency * 1000) if is_ready and self.latency is not None else None,
             "guilds": len(self.guilds) if is_ready else 0,
             "cogs": list(self.cogs.keys()),
             "commands": [c.name for c in self.tree.get_commands()],
+            "auto_maintenance": auto_status,
             "extension_errors": self.extension_errors,
             "dry_run": bot_config.dry_run
         }
@@ -227,7 +236,61 @@ class SecurityBot(commands.Bot):
 
         self.tree.on_error = on_tree_error
 
-        # 7. Start maintenance loop and VC punishment expiry monitor
+        # 7. Global Pre-Execution Interaction Guard (Blacklist, Maintenance, Cooldown, Feature Toggles)
+        async def global_interaction_check(interaction: discord.Interaction) -> bool:
+            user_id = interaction.user.id
+            guild_id = interaction.guild_id
+
+            # A. Entity Blacklist Enforcement
+            if await db.is_blacklisted("user", user_id):
+                await interaction.response.send_message(i18n.get("blacklisted_user"), ephemeral=True)
+                return False
+            if guild_id and await db.is_blacklisted("guild", guild_id):
+                await interaction.response.send_message(i18n.get("blacklisted_guild"), ephemeral=True)
+                return False
+
+            # B. Global & Auto Maintenance Mode Check
+            maint_state = await db.get_system_state("maintenance_mode")
+            if auto_maintenance_monitor.is_tripped or maint_state == "true":
+                if not security_manager.is_developer(user_id):
+                    maint_msg = i18n.get("maintenance_active")
+                    if auto_maintenance_monitor.trip_reason:
+                        maint_msg += f"\n\n*Auto-trip reason:* `{auto_maintenance_monitor.trip_reason}`"
+                    await interaction.response.send_message(maint_msg, ephemeral=True)
+                    return False
+
+            # C. Rate Limiting / Command Cooldown Enforcement
+            if not security_manager.is_developer(user_id):
+                cmd_name = interaction.command.name if interaction.command else "interaction"
+                is_cd, remaining = cooldown_manager.check_cooldown(guild_id, user_id, cmd_name)
+                if is_cd:
+                    await interaction.response.send_message(
+                        i18n.get("cooldown_notice", remaining=remaining),
+                        ephemeral=True
+                    )
+                    return False
+
+            # D. Modular Feature Toggle Check
+            if guild_id and interaction.command:
+                cmd_to_module = {
+                    "quarantine": "quarantine",
+                    "voice": "voice_protection",
+                    "logs": "logging_system",
+                    "logsync": "logging_system"
+                }
+                mod_name = cmd_to_module.get(interaction.command.name)
+                if mod_name and not await db.is_module_enabled(guild_id, mod_name):
+                    await interaction.response.send_message(
+                        i18n.get("module_disabled", module=mod_name),
+                        ephemeral=True
+                    )
+                    return False
+
+            return True
+
+        self.tree.interaction_check = global_interaction_check
+
+        # 8. Start maintenance loop and VC punishment expiry monitor
         self.maintenance_task.start()
         self.vc_punishment_expiry_task.start()
 

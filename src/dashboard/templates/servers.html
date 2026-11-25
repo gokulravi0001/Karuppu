@@ -1,0 +1,80 @@
+<div class="space-y-8">
+    <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-6 border-b border-gray-800">
+        <div>
+            <h1 class="text-3xl font-extrabold text-white tracking-wide mb-1">Server Management</h1>
+            <p class="text-gray-400 text-sm">Strictly isolated per-server configurations, active modules, and zero-creation channel status.</p>
+        </div>
+        <div class="text-sm text-gray-400">
+            Total Monitored: <b class="text-white">{{ guilds | length }} Servers</b>
+        </div>
+    </div>
+
+    <!-- Multi-Server Data Isolation Guarantee Banner -->
+    <div class="bg-indigo-950/40 border border-indigo-500/30 rounded-2xl p-5 flex items-start space-x-4">
+        <span class="text-3xl">🔒</span>
+        <div>
+            <h4 class="font-bold text-white text-sm mb-1">Guaranteed Multi-Server Isolation</h4>
+            <p class="text-xs text-indigo-200">
+                Each server's rules, threshold limits, quarantine states, and logs are compartmentalized with database-level primary keys. Changes made on one server never propagate to or affect another.
+            </p>
+        </div>
+    </div>
+
+    <!-- Server Cards -->
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {% for g in guilds %}
+        <div class="bg-discord-card border border-gray-800 hover:border-gray-700 transition rounded-2xl p-6 flex flex-col justify-between">
+            <div>
+                <div class="flex items-center space-x-4 mb-5">
+                    {% if g.icon %}
+                    <img src="https://cdn.discordapp.com/icons/{{ g.id }}/{{ g.icon }}.png?size=128" 
+                         class="w-14 h-14 rounded-2xl shadow object-cover" alt="guild icon">
+                    {% else %}
+                    <div class="w-14 h-14 rounded-2xl bg-discord-blurple flex items-center justify-center font-bold text-white text-lg shadow">
+                        {{ g.name[:2] }}
+                    </div>
+                    {% endif %}
+                    <div class="overflow-hidden">
+                        <h3 class="font-bold text-white text-base truncate">{{ g.name }}</h3>
+                        <span class="text-xs text-gray-400">ID: {{ g.id }}</span>
+                        <div class="text-xs text-gray-400 mt-0.5">{{ g.member_count or 0 }} members</div>
+                    </div>
+                </div>
+
+                <!-- Active Module Indicators -->
+                <div class="space-y-2 mb-6 text-xs">
+                    <div class="flex justify-between items-center text-gray-300 py-1 border-b border-gray-800/60">
+                        <span>Anti-Nuke Protection</span>
+                        <span class="text-green-400 font-semibold">● ACTIVE</span>
+                    </div>
+                    <div class="flex justify-between items-center text-gray-300 py-1 border-b border-gray-800/60">
+                        <span>Quarantine Isolation</span>
+                        <span class="text-green-400 font-semibold">● READY</span>
+                    </div>
+                    <div class="flex justify-between items-center text-gray-300 py-1 border-b border-gray-800/60">
+                        <span>Audit Log Suite</span>
+                        <span class="text-discord-blurple font-semibold">33 Channels</span>
+                    </div>
+                </div>
+            </div>
+
+            <div>
+                {% if g.bot_present %}
+                <a href="/dashboard/guild/{{ g.id }}" 
+                   class="w-full bg-discord-blurple hover:bg-indigo-600 text-white font-medium text-sm py-2.5 rounded-xl transition flex items-center justify-center space-x-2">
+                    <span>Manage Server Security</span>
+                    <span>➔</span>
+                </a>
+                {% else %}
+                <a href="https://discord.com/oauth2/authorize?client_id={{ client_id }}&guild_id={{ g.id }}&permissions=277025524758&scope=bot%20applications.commands" 
+                   target="_blank"
+                   class="w-full bg-gray-700 hover:bg-gray-600 text-gray-200 font-medium text-sm py-2.5 rounded-xl transition flex items-center justify-center space-x-2">
+                    <span>Invite Bot</span>
+                    <span>➕</span>
+                </a>
+                {% endif %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>

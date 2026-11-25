@@ -1,0 +1,145 @@
+<div class="space-y-8">
+    <!-- Header -->
+    <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-6 border-b border-gray-800">
+        <div>
+            <div class="flex items-center space-x-3 mb-1">
+                <h1 class="text-3xl font-extrabold text-white tracking-wide">System Overview</h1>
+                {% if maintenance_mode %}
+                <span class="px-3 py-1 bg-yellow-500/20 text-yellow-400 border border-yellow-500/30 rounded-full text-xs font-semibold uppercase tracking-wider flex items-center space-x-1">
+                    <span class="w-2 h-2 rounded-full bg-yellow-400 animate-pulse"></span>
+                    <span>Maintenance Active</span>
+                </span>
+                {% else %}
+                <span class="px-3 py-1 bg-green-500/20 text-green-400 border border-green-500/30 rounded-full text-xs font-semibold uppercase tracking-wider flex items-center space-x-1">
+                    <span class="w-2 h-2 rounded-full bg-green-400"></span>
+                    <span>Systems Operational</span>
+                </span>
+                {% endif %}
+            </div>
+            <p class="text-gray-400 text-sm">Real-time telemetry, cluster health, connected Discord servers, and subsystem statuses.</p>
+        </div>
+        <div class="flex items-center space-x-3">
+            <span class="text-xs text-gray-400 bg-discord-card px-3 py-2 rounded-xl border border-gray-800">
+                Uptime: <b class="text-white">{{ uptime_str or "Online" }}</b>
+            </span>
+            <span class="text-xs text-gray-400 bg-discord-card px-3 py-2 rounded-xl border border-gray-800">
+                Version: <b class="text-discord-blurple">v1.4.0</b>
+            </span>
+        </div>
+    </div>
+
+    <!-- Telemetry Cards -->
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <div class="bg-discord-card border border-gray-800 rounded-2xl p-5 shadow">
+            <div class="flex items-center justify-between text-gray-400 text-xs font-semibold uppercase mb-2">
+                <span>Discord Gateway</span>
+                <span class="text-green-400">● LIVE</span>
+            </div>
+            <div class="text-3xl font-extrabold text-white mb-1">{{ latency }} <span class="text-sm font-normal text-gray-400">ms</span></div>
+            <p class="text-xs text-gray-400">WebSocket heartbeat latency</p>
+        </div>
+
+        <div class="bg-discord-card border border-gray-800 rounded-2xl p-5 shadow">
+            <div class="flex items-center justify-between text-gray-400 text-xs font-semibold uppercase mb-2">
+                <span>Connected Guilds</span>
+                <span class="text-discord-blurple">● SERVERS</span>
+            </div>
+            <div class="text-3xl font-extrabold text-white mb-1">{{ guild_count }}</div>
+            <p class="text-xs text-gray-400">Protecting {{ total_members }} members</p>
+        </div>
+
+        <div class="bg-discord-card border border-gray-800 rounded-2xl p-5 shadow">
+            <div class="flex items-center justify-between text-gray-400 text-xs font-semibold uppercase mb-2">
+                <span>Database Engine</span>
+                <span class="text-green-400">● WAL MODE</span>
+            </div>
+            <div class="text-3xl font-extrabold text-white mb-1">{{ db_metrics.latency_ms or 0 }} <span class="text-sm font-normal text-gray-400">ms</span></div>
+            <p class="text-xs text-gray-400">Storage size: {{ db_metrics.size_human or 'N/A' }}</p>
+        </div>
+
+        <div class="bg-discord-card border border-gray-800 rounded-2xl p-5 shadow">
+            <div class="flex items-center justify-between text-gray-400 text-xs font-semibold uppercase mb-2">
+                <span>Active Modules</span>
+                <span class="text-purple-400">● SECURITY</span>
+            </div>
+            <div class="text-3xl font-extrabold text-white mb-1">{{ loaded_cogs_count }} <span class="text-sm font-normal text-gray-400">/ 18</span></div>
+            <p class="text-xs text-gray-400">Security cogs initialized</p>
+        </div>
+    </div>
+
+    <!-- Active Systems Grid & Auto-Maintenance Alert -->
+    {% if auto_maintenance.is_tripped %}
+    <div class="bg-red-500/10 border border-red-500/40 rounded-2xl p-6 text-red-200">
+        <div class="flex items-center space-x-3 mb-2">
+            <span class="text-2xl">🚨</span>
+            <h3 class="font-bold text-lg text-white">Auto-Maintenance Circuit Breaker Tripped!</h3>
+        </div>
+        <p class="text-sm text-red-300 mb-3">{{ auto_maintenance.trip_reason }}</p>
+        <div class="text-xs text-red-400">
+            Tripped at: {{ auto_maintenance.tripped_at }} • Critical errors in rolling window: {{ auto_maintenance.recent_error_count }}
+        </div>
+    </div>
+    {% endif %}
+
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <!-- Subsystems Status -->
+        <div class="lg:col-span-2 bg-discord-card border border-gray-800 rounded-2xl p-6">
+            <h2 class="text-xl font-bold text-white mb-4 flex items-center space-x-2">
+                <span>🛡️</span>
+                <span>Active Security Subsystems</span>
+            </h2>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {% for cog in active_cogs %}
+                <div class="bg-discord-dark p-4 rounded-xl border border-gray-800/80 flex items-center justify-between">
+                    <div>
+                        <h4 class="font-bold text-sm text-white">{{ cog.name }}</h4>
+                        <span class="text-xs text-gray-400">{{ cog.desc }}</span>
+                    </div>
+                    <span class="px-2.5 py-1 bg-green-500/10 text-green-400 border border-green-500/20 text-xs font-medium rounded-lg">
+                        ONLINE
+                    </span>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+
+        <!-- System Activity & Recent Incidents -->
+        <div class="bg-discord-card border border-gray-800 rounded-2xl p-6 flex flex-col justify-between">
+            <div>
+                <h2 class="text-xl font-bold text-white mb-4 flex items-center space-x-2">
+                    <span>⚡</span>
+                    <span>System Telemetry</span>
+                </h2>
+                <div class="space-y-4">
+                    <div class="flex justify-between items-center text-sm py-2 border-b border-gray-800">
+                        <span class="text-gray-400">Enforcement Mode</span>
+                        <span class="font-semibold text-yellow-400">{{ "DRY-RUN (Alerts Only)" if dry_run else "ACTIVE ENFORCEMENT" }}</span>
+                    </div>
+                    <div class="flex justify-between items-center text-sm py-2 border-b border-gray-800">
+                        <span class="text-gray-400">Auto-Maintenance Threshold</span>
+                        <span class="font-semibold text-white">10 errors / 60s</span>
+                    </div>
+                    <div class="flex justify-between items-center text-sm py-2 border-b border-gray-800">
+                        <span class="text-gray-400">Total Audit Incidents</span>
+                        <span class="font-semibold text-white">{{ db_metrics.table_counts.incidents or 0 }} logged</span>
+                    </div>
+                    <div class="flex justify-between items-center text-sm py-2 border-b border-gray-800">
+                        <span class="text-gray-400">Active Quarantines</span>
+                        <span class="font-semibold text-red-400">{{ db_metrics.table_counts.quarantined_users or 0 }} isolated</span>
+                    </div>
+                    <div class="flex justify-between items-center text-sm py-2">
+                        <span class="text-gray-400">Schema Migrations</span>
+                        <span class="font-semibold text-green-400">{{ db_metrics.applied_migrations | length }} applied</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="mt-6 pt-4 border-t border-gray-800">
+                <a href="/dashboard/logs" class="w-full bg-discord-dark hover:bg-gray-800 text-gray-200 text-sm font-medium py-2.5 rounded-xl border border-gray-700 transition flex items-center justify-center space-x-2">
+                    <span>Inspect Live Event Stream</span>
+                    <span>➔</span>
+                </a>
+            </div>
+        </div>
+    </div>
+</div>

@@ -12,6 +12,10 @@ from discord.ext import commands
 from src.config import bot_config
 from src.database import db
 from src.dashboard.auth import auth_manager
+from src.core.security import security_manager
+from src.core.logger import ring_buffer_handler, auto_maintenance_monitor
+from src.core.i18n import i18n
+from src.core.cooldown import cooldown_manager
 
 logger = logging.getLogger("security_bot.dashboard")
 
@@ -38,6 +42,10 @@ class DashboardController:
         user = session.get("user") if session else None
         context["user"] = user
         context["client_id"] = auth_manager.client_id
+        is_dev = security_manager.is_developer(user.get("id")) if user else False
+        csrf_token = security_manager.generate_csrf_token(str(user.get("id", "anon"))) if user else ""
+        context.setdefault("is_dev", is_dev)
+        context.setdefault("csrf_token", csrf_token)
 
         # Render child content template
         child_template = jinja_env.get_template(template_name)
@@ -541,6 +549,417 @@ class DashboardController:
         incidents = await db.get_recent_incidents(guild_id, limit=50)
         return web.json_response({"incidents": incidents})
 
+    # ==========================================
+    # CORE SYSTEM MANAGEMENT PAGES (AURA CORE UPGRADE)
+    # ==========================================
+
+    async def handle_overview(self, request: web.Request) -> web.Response:
+        """Section A: System Overview and operational telemetry."""
+        session = self._get_session(request)
+        guild_count = len(self.bot.guilds)
+        total_members = sum(g.member_count for g in self.bot.guilds if g.member_count)
+        latency = round(self.bot.latency * 1000) if self.bot.latency else 0
+
+        # Health & database metrics
+        db_metrics = await db.get_health_metrics()
+        auto_maint_status = auto_maintenance_monitor.get_status()
+        maintenance_mode_val = await db.get_system_state("maintenance_mode")
+        is_maintenance = auto_maint_status["is_tripped"] or maintenance_mode_val == "true"
+
+        # Active cogs breakdown
+        active_cogs = [
+            {"name": "Anti-Nuke Engine", "desc": "Channel, role, kick, and ban spike detection and auto-quarantine"},
+            {"name": "Raid Detector", "desc": "Join velocity monitoring and mass wave mitigation"},
+            {"name": "Quarantine System", "desc": "Threat isolation, role stripping, and restorative release"},
+            {"name": "Voice Protection", "desc": "Anti-deafen/mute, VC timeouts, and 24/7 channel guard"},
+            {"name": "Granular Logging Suite", "desc": "33 dedicated event channels with zero-creation binding"},
+            {"name": "Trust Gate & Sanity", "desc": "New account verification and name/invite sanitization"},
+            {"name": "Webhook Guard", "desc": "Unauthorized webhook creation detection and revocation"},
+            {"name": "Server Lockdown", "desc": "Instant permission isolation and emergency recovery"}
+        ]
+
+        return self.render_page(
+            "overview.html",
+            session=session,
+            title="Overview • Karuppu Security Core",
+            guild_count=guild_count,
+            total_members=total_members,
+            latency=latency,
+            db_metrics=db_metrics,
+            auto_maintenance=auto_maint_status,
+            maintenance_mode=is_maintenance,
+            loaded_cogs_count=len(self.bot.cogs),
+            active_cogs=active_cogs,
+            dry_run=bot_config.dry_run
+        )
+
+    async def handle_global_config(self, request: web.Request) -> web.Response:
+        """Section B: Global Configuration and developer-controlled settings."""
+        session = self._get_session(request)
+        if not session or "user" not in session:
+            raise web.HTTPFound("/auth/login")
+
+        cooldown_val = await db.get_system_state("default_command_cooldown") or "3"
+        lang_val = await db.get_system_state("default_language") or "en"
+        auto_thresh = await db.get_system_state("auto_maint_threshold") or "10"
+        auto_win = await db.get_system_state("auto_maint_window") or "60"
+        op_log_ch = await db.get_system_state("operational_log_channel_id") or ""
+
+        config_data = {
+            "command_cooldown_seconds": int(cooldown_val) if cooldown_val.isdigit() else 3,
+            "default_language": lang_val,
+            "audit_retention_days": bot_config.audit_retention_days,
+            "auto_maint_threshold": int(auto_thresh) if auto_thresh.isdigit() else 10,
+            "auto_maint_window": int(auto_win) if auto_win.isdigit() else 60,
+            "operational_log_channel_id": op_log_ch
+        }
+
+        return self.render_page(
+            "global_config.html",
+            session=session,
+            title="Global Configuration • Karuppu Security Core",
+            config=config_data
+        )
+
+    async def api_save_global_config(self, request: web.Request) -> web.Response:
+        """Saves system-wide configuration settings with CSRF and developer verification."""
+        session = self._get_session(request)
+        if not session or "user" not in session:
+            return web.json_response({"error": "Unauthorized"}, status=401)
+
+        user_id = session["user"]["id"]
+        post_data = await request.post()
+        csrf = post_data.get("csrf_token", "")
+        if not security_manager.validate_csrf_token(str(user_id), csrf):
+            return web.Response(text="Invalid CSRF token.", status=403)
+
+        if not security_manager.is_developer(user_id):
+            return web.Response(text="Developer permissions required for global system configuration.", status=403)
+
+        cooldown = post_data.get("command_cooldown_seconds", "3")
+        lang = post_data.get("default_language", "en")
+        thresh = post_data.get("auto_maint_threshold", "10")
+        win = post_data.get("auto_maint_window", "60")
+        op_ch = post_data.get("operational_log_channel_id", "").strip()
+
+        await db.set_system_state("default_command_cooldown", cooldown, updated_by=session["user"]["username"])
+        await db.set_system_state("default_language", lang, updated_by=session["user"]["username"])
+        await db.set_system_state("auto_maint_threshold", thresh, updated_by=session["user"]["username"])
+        await db.set_system_state("auto_maint_window", win, updated_by=session["user"]["username"])
+        await db.set_system_state("operational_log_channel_id", op_ch, updated_by=session["user"]["username"])
+
+        if thresh.isdigit():
+            auto_maintenance_monitor.threshold = int(thresh)
+        if win.isdigit():
+            auto_maintenance_monitor.window_seconds = int(win)
+        if cooldown.isdigit():
+            cooldown_manager.default_cooldown = float(cooldown)
+
+        await db.log_admin_action(
+            admin_user_id=int(user_id),
+            admin_username=session["user"]["username"],
+            action="UPDATE_GLOBAL_CONFIG",
+            target="SYSTEM",
+            details=f"Cooldown={cooldown}s, Lang={lang}, AutoMaint={thresh}/{win}s"
+        )
+
+        return self.render_page(
+            "global_config.html",
+            session=session,
+            title="Global Configuration • Karuppu Security Core",
+            config={
+                "command_cooldown_seconds": int(cooldown),
+                "default_language": lang,
+                "audit_retention_days": bot_config.audit_retention_days,
+                "auto_maint_threshold": int(thresh),
+                "auto_maint_window": int(win),
+                "operational_log_channel_id": op_ch
+            },
+            message="✅ Global system configuration saved successfully."
+        )
+
+    async def handle_monitoring(self, request: web.Request) -> web.Response:
+        """Section D: Centralized monitoring and live log stream."""
+        session = self._get_session(request)
+        level = request.query.get("level")
+        search = request.query.get("search")
+
+        logs = ring_buffer_handler.get_logs(level=level, search=search, limit=100)
+
+        return self.render_page(
+            "monitoring.html",
+            session=session,
+            title="Monitoring & Live Logs • Karuppu Security Core",
+            logs=logs,
+            level=level,
+            search=search
+        )
+
+    async def api_export_logs(self, request: web.Request) -> web.Response:
+        """Exports ring buffer log records as formatted JSON for troubleshooting."""
+        session = self._get_session(request)
+        if not session or "user" not in session:
+            return web.json_response({"error": "Unauthorized"}, status=401)
+        logs = ring_buffer_handler.get_logs(limit=500)
+        return web.json_response({"logs": logs, "exported_at": datetime.now(timezone.utc).isoformat()})
+
+    async def handle_database_admin(self, request: web.Request) -> web.Response:
+        """Section E: Database health metrics, backups, and schema migrations."""
+        session = self._get_session(request)
+        metrics = await db.get_health_metrics()
+
+        return self.render_page(
+            "database_admin.html",
+            session=session,
+            title="Database Management • Karuppu Security Core",
+            metrics=metrics
+        )
+
+    async def api_backup_database(self, request: web.Request) -> web.Response:
+        """Generates a downloadable JSON backup snapshot of all tables."""
+        session = self._get_session(request)
+        if not session or "user" not in session:
+            raise web.HTTPFound("/auth/login")
+
+        user_id = session["user"]["id"]
+        if not security_manager.is_developer(user_id):
+            return web.Response(text="Developer privileges required to generate database backup.", status=403)
+
+        backup_payload = await db.create_backup()
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        filename = f"karuppu_backup_{timestamp}.json"
+
+        response = web.Response(
+            body=json.dumps(backup_payload, indent=2).encode("utf-8"),
+            content_type="application/json"
+        )
+        response.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
+
+        await db.log_admin_action(
+            admin_user_id=int(user_id),
+            admin_username=session["user"]["username"],
+            action="DATABASE_BACKUP_CREATED",
+            target="DATABASE",
+            details=f"Backup snapshot generated ({filename})"
+        )
+        return response
+
+    async def api_restore_database(self, request: web.Request) -> web.Response:
+        """Restores database from uploaded JSON backup snapshot."""
+        session = self._get_session(request)
+        if not session or "user" not in session:
+            raise web.HTTPFound("/auth/login")
+
+        user_id = session["user"]["id"]
+        if not security_manager.is_developer(user_id):
+            return web.Response(text="Developer privileges required to restore database backup.", status=403)
+
+        reader = await request.multipart()
+        backup_bytes = None
+        while True:
+            part = await reader.next()
+            if part is None:
+                break
+            if part.name == "backup_file":
+                backup_bytes = await part.read()
+            elif part.name == "csrf_token":
+                csrf_val = (await part.read()).decode("utf-8")
+                if not security_manager.validate_csrf_token(str(user_id), csrf_val):
+                    return web.Response(text="Invalid CSRF token.", status=403)
+
+        if not backup_bytes:
+            return web.Response(text="No backup file provided.", status=400)
+
+        try:
+            backup_data = json.loads(backup_bytes.decode("utf-8"))
+        except Exception as e:
+            return web.Response(text=f"Invalid JSON file: {e}", status=400)
+
+        success, message = await db.restore_backup(backup_data)
+        metrics = await db.get_health_metrics()
+
+        await db.log_admin_action(
+            admin_user_id=int(user_id),
+            admin_username=session["user"]["username"],
+            action="DATABASE_RESTORE_ATTEMPT",
+            target="DATABASE",
+            details=f"Success={success}, Message={message}"
+        )
+
+        return self.render_page(
+            "database_admin.html",
+            session=session,
+            title="Database Management • Karuppu Security Core",
+            metrics=metrics,
+            message="✅ " + message if success else "❌ " + message
+        )
+
+    async def handle_security_admin(self, request: web.Request) -> web.Response:
+        """Section F: Security overview, audit trails, and quarantine statistics."""
+        session = self._get_session(request)
+        audit_logs = await db.get_admin_audit_logs(limit=50)
+        metrics = await db.get_health_metrics()
+        total_quarantined = metrics["table_counts"].get("quarantined_users", 0)
+
+        return self.render_page(
+            "security_admin.html",
+            session=session,
+            title="Security Management & Audit Trail • Karuppu Security Core",
+            audit_logs=audit_logs,
+            total_quarantined=total_quarantined
+        )
+
+    async def handle_developer_controls(self, request: web.Request) -> web.Response:
+        """Section G: Developer-only controls, maintenance mode, and blacklist."""
+        session = self._get_session(request)
+        if not session or "user" not in session:
+            raise web.HTTPFound("/auth/login")
+
+        user_id = session["user"]["id"]
+        if not security_manager.is_developer(user_id):
+            return web.Response(text="⛔ Access Denied: Developer privileges required.", status=403)
+
+        maint_state = await db.get_system_state("maintenance_mode")
+        is_maint = auto_maintenance_monitor.is_tripped or maint_state == "true"
+        blacklist = await db.get_blacklist()
+
+        return self.render_page(
+            "developer_controls.html",
+            session=session,
+            title="Developer Control Center • Karuppu Security Core",
+            maintenance_mode=is_maint,
+            auto_maintenance=auto_maintenance_monitor.get_status(),
+            blacklist=blacklist
+        )
+
+    async def api_toggle_maintenance(self, request: web.Request) -> web.Response:
+        """Toggles global maintenance mode."""
+        session = self._get_session(request)
+        if not session or "user" not in session:
+            raise web.HTTPFound("/auth/login")
+
+        user_id = session["user"]["id"]
+        if not security_manager.is_developer(user_id):
+            return web.Response(text="Developer privileges required.", status=403)
+
+        post_data = await request.post()
+        csrf = post_data.get("csrf_token", "")
+        if not security_manager.validate_csrf_token(str(user_id), csrf):
+            return web.Response(text="Invalid CSRF token.", status=403)
+
+        action = post_data.get("action")
+        username = session["user"]["username"]
+        if action == "enable":
+            auto_maintenance_monitor.trigger_maintenance(reason=f"Manually enabled by developer {username}")
+        else:
+            auto_maintenance_monitor.reset_maintenance(reset_by=username)
+
+        await db.log_admin_action(
+            admin_user_id=int(user_id),
+            admin_username=username,
+            action="TOGGLE_MAINTENANCE_MODE",
+            target="SYSTEM",
+            details=f"Maintenance mode set to {action}"
+        )
+        raise web.HTTPFound("/dashboard/developer")
+
+    async def api_blacklist_entity(self, request: web.Request) -> web.Response:
+        """Adds a user or guild to the global blacklist."""
+        session = self._get_session(request)
+        if not session or "user" not in session:
+            raise web.HTTPFound("/auth/login")
+
+        user_id = session["user"]["id"]
+        if not security_manager.is_developer(user_id):
+            return web.Response(text="Developer privileges required.", status=403)
+
+        post_data = await request.post()
+        csrf = post_data.get("csrf_token", "")
+        if not security_manager.validate_csrf_token(str(user_id), csrf):
+            return web.Response(text="Invalid CSRF token.", status=403)
+
+        entity_type = post_data.get("entity_type", "user")
+        entity_id_str = post_data.get("entity_id", "")
+        reason = post_data.get("reason", "Violating security guidelines")
+
+        if entity_id_str.isdigit():
+            await db.add_to_blacklist(
+                entity_type=entity_type,
+                entity_id=int(entity_id_str),
+                reason=reason,
+                added_by=session["user"]["username"]
+            )
+            await db.log_admin_action(
+                admin_user_id=int(user_id),
+                admin_username=session["user"]["username"],
+                action="ADD_BLACKLIST",
+                target=f"{entity_type}:{entity_id_str}",
+                details=reason
+            )
+
+        raise web.HTTPFound("/dashboard/developer")
+
+    async def api_remove_blacklist(self, request: web.Request) -> web.Response:
+        """Removes an entity from the global blacklist."""
+        session = self._get_session(request)
+        if not session or "user" not in session:
+            raise web.HTTPFound("/auth/login")
+
+        user_id = session["user"]["id"]
+        if not security_manager.is_developer(user_id):
+            return web.Response(text="Developer privileges required.", status=403)
+
+        post_data = await request.post()
+        csrf = post_data.get("csrf_token", "")
+        if not security_manager.validate_csrf_token(str(user_id), csrf):
+            return web.Response(text="Invalid CSRF token.", status=403)
+
+        entity_type = post_data.get("entity_type", "user")
+        entity_id_str = post_data.get("entity_id", "")
+
+        if entity_id_str.isdigit():
+            await db.remove_from_blacklist(entity_type=entity_type, entity_id=int(entity_id_str))
+            await db.log_admin_action(
+                admin_user_id=int(user_id),
+                admin_username=session["user"]["username"],
+                action="REMOVE_BLACKLIST",
+                target=f"{entity_type}:{entity_id_str}",
+                details="Removed from blacklist"
+            )
+
+        raise web.HTTPFound("/dashboard/developer")
+
+    async def api_add_changelog(self, request: web.Request) -> web.Response:
+        """Publishes a new changelog announcement entry."""
+        session = self._get_session(request)
+        if not session or "user" not in session:
+            raise web.HTTPFound("/auth/login")
+
+        user_id = session["user"]["id"]
+        if not security_manager.is_developer(user_id):
+            return web.Response(text="Developer privileges required.", status=403)
+
+        post_data = await request.post()
+        csrf = post_data.get("csrf_token", "")
+        if not security_manager.validate_csrf_token(str(user_id), csrf):
+            return web.Response(text="Invalid CSRF token.", status=403)
+
+        version = post_data.get("version", "v1.4.0")
+        category = post_data.get("category", "feature")
+        title = post_data.get("title", "")
+        content = post_data.get("content", "")
+
+        await db.add_changelog(
+            version=version,
+            title=title,
+            category=category,
+            content=content,
+            author_id=int(user_id),
+            author_name=session["user"]["username"]
+        )
+
+        raise web.HTTPFound("/dashboard/developer")
+
 def setup_dashboard_routes(app: web.Application, bot: commands.Bot) -> None:
     """Registers all dashboard web and API routes to the application."""
     ctrl = DashboardController(bot)
@@ -553,14 +972,33 @@ def setup_dashboard_routes(app: web.Application, bot: commands.Bot) -> None:
     app.router.add_get("/privacy", ctrl.handle_privacy)
     app.router.add_get("/privacy-policy", ctrl.handle_privacy)
     app.router.add_get("/dashboard", ctrl.handle_dashboard)
+    app.router.add_get("/dashboard/servers", ctrl.handle_dashboard)
     app.router.add_get("/dashboard/guild/{guild_id}", ctrl.handle_guild_dashboard)
+
+    # 7 Management Sections
+    app.router.add_get("/dashboard/overview", ctrl.handle_overview)
+    app.router.add_get("/dashboard/global-config", ctrl.handle_global_config)
+    app.router.add_get("/dashboard/logs", ctrl.handle_monitoring)
+    app.router.add_get("/dashboard/database", ctrl.handle_database_admin)
+    app.router.add_get("/dashboard/security", ctrl.handle_security_admin)
+    app.router.add_get("/dashboard/developer", ctrl.handle_developer_controls)
 
     # Auth
     app.router.add_get("/auth/login", ctrl.handle_login)
     app.router.add_get("/auth/callback", ctrl.handle_callback)
     app.router.add_get("/auth/logout", ctrl.handle_logout)
 
-    # APIs
+    # Core APIs
+    app.router.add_post("/api/admin/global-config", ctrl.api_save_global_config)
+    app.router.add_get("/api/logs/export", ctrl.api_export_logs)
+    app.router.add_get("/api/database/backup", ctrl.api_backup_database)
+    app.router.add_post("/api/database/restore", ctrl.api_restore_database)
+    app.router.add_post("/api/developer/maintenance", ctrl.api_toggle_maintenance)
+    app.router.add_post("/api/developer/blacklist", ctrl.api_blacklist_entity)
+    app.router.add_post("/api/developer/blacklist/remove", ctrl.api_remove_blacklist)
+    app.router.add_post("/api/developer/changelog", ctrl.api_add_changelog)
+
+    # Guild APIs
     app.router.add_post("/api/guild/{guild_id}/dry_run", ctrl.api_toggle_dry_run)
     app.router.add_post("/api/guild/{guild_id}/auto_setup", ctrl.api_auto_setup)
     app.router.add_post("/api/guild/{guild_id}/roles", ctrl.api_save_roles)

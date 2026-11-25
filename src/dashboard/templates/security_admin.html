@@ -1,0 +1,70 @@
+<div class="space-y-8">
+    <div class="pb-6 border-b border-gray-800">
+        <h1 class="text-3xl font-extrabold text-white tracking-wide mb-1">Security Management & Audit Trail</h1>
+        <p class="text-gray-400 text-sm">Administrative action audit logs, API rate limiting, and access verification records.</p>
+    </div>
+
+    <!-- Security Highlights Grid -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div class="bg-discord-card border border-gray-800 rounded-2xl p-5 shadow">
+            <div class="text-xs font-semibold uppercase text-gray-400 mb-1">Rate Limiter</div>
+            <div class="text-2xl font-bold text-green-400 mb-1">Active (40 req/min)</div>
+            <p class="text-xs text-gray-400">Sliding window protection against DDoS</p>
+        </div>
+
+        <div class="bg-discord-card border border-gray-800 rounded-2xl p-5 shadow">
+            <div class="text-xs font-semibold uppercase text-gray-400 mb-1">CSRF Security</div>
+            <div class="text-2xl font-bold text-purple-400 mb-1">HMAC-SHA256</div>
+            <p class="text-xs text-gray-400">Signed state-changing endpoints</p>
+        </div>
+
+        <div class="bg-discord-card border border-gray-800 rounded-2xl p-5 shadow">
+            <div class="text-xs font-semibold uppercase text-gray-400 mb-1">Active Quarantines</div>
+            <div class="text-2xl font-bold text-red-400 mb-1">{{ total_quarantined }} Users</div>
+            <p class="text-xs text-gray-400">Isolated across all guilds</p>
+        </div>
+    </div>
+
+    <!-- Admin Audit Trail Table -->
+    <div class="bg-discord-card border border-gray-800 rounded-2xl overflow-hidden shadow">
+        <div class="p-6 border-b border-gray-800">
+            <h2 class="text-lg font-bold text-white flex items-center space-x-2">
+                <span>🛡️</span>
+                <span>Administrative Audit Trail</span>
+            </h2>
+            <p class="text-xs text-gray-400 mt-1">Immutable log of security modifications, role assignments, and bot parameter updates.</p>
+        </div>
+
+        <div class="overflow-x-auto">
+            <table class="w-full text-left border-collapse">
+                <thead>
+                    <tr class="bg-discord-dark border-b border-gray-800 text-gray-400 text-xs uppercase tracking-wider">
+                        <th class="py-3 px-4">Timestamp</th>
+                        <th class="py-3 px-4">Admin</th>
+                        <th class="py-3 px-4">Action</th>
+                        <th class="py-3 px-4">Target</th>
+                        <th class="py-3 px-4">Details</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-800/60 font-mono text-xs">
+                    {% for a in audit_logs %}
+                    <tr class="hover:bg-discord-dark/50 transition">
+                        <td class="py-3 px-4 text-gray-400 whitespace-nowrap">{{ a.created_at[11:19] }}</td>
+                        <td class="py-3 px-4 text-white font-semibold whitespace-nowrap">{{ a.admin_username }} ({{ a.admin_user_id }})</td>
+                        <td class="py-3 px-4 text-discord-blurple font-semibold whitespace-nowrap">{{ a.action }}</td>
+                        <td class="py-3 px-4 text-gray-300 whitespace-nowrap">{{ a.target or '-' }}</td>
+                        <td class="py-3 px-4 text-gray-400">{{ a.details }}</td>
+                    </tr>
+                    {% endfor %}
+                    {% if not audit_logs %}
+                    <tr>
+                        <td colspan="5" class="py-12 text-center text-gray-500 font-sans">
+                            No administrative audit actions recorded yet.
+                        </td>
+                    </tr>
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>

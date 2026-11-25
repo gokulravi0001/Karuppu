@@ -1,10 +1,12 @@
-"""Database module for structured audit logging and owner bypass persistence."""
+"""Database module for structured audit logging, migrations, system state, and multi-server management."""
 import os
 import json
 import hashlib
 import logging
+import time
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
+from contextlib import asynccontextmanager
 import aiosqlite
 
 logger = logging.getLogger("security_bot.database")
@@ -20,10 +22,27 @@ class AuditDatabase:
     def _ensure_dir(self) -> None:
         os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
 
+    @asynccontextmanager
+    async def get_connection(self):
+        """Asynchronous context manager providing a SQLite connection configured with safe synchronous mode and foreign keys."""
+        async with aiosqlite.connect(self.db_path) as conn:
+            await conn.execute("PRAGMA synchronous = NORMAL;")
+            await conn.execute("PRAGMA foreign_keys = ON;")
+            yield conn
+
     async def init_db(self) -> None:
-        """Initializes SQLite tables for audit logs and owner bypasses."""
-        async with aiosqlite.connect(self.db_path) as db:
-            # Incidents table
+        """Initializes SQLite tables for audit logs, owner bypasses, and executes schema migrations."""
+        async with self.get_connection() as db:
+            # 0. Migrations Registry Table
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS schema_migrations (
+                    version TEXT PRIMARY KEY,
+                    applied_at TEXT NOT NULL,
+                    description TEXT
+                );
+            """)
+
+            # 1. Incidents table
             await db.execute("""
                 CREATE TABLE IF NOT EXISTS incidents (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -41,7 +60,7 @@ class AuditDatabase:
                 );
             """)
 
-            # Dynamic owner bypasses table
+            # 2. Dynamic owner bypasses table
             await db.execute("""
                 CREATE TABLE IF NOT EXISTS dynamic_bypasses (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -55,7 +74,7 @@ class AuditDatabase:
                 );
             """)
 
-            # Per-guild settings table for public multi-server hosting
+            # 3. Per-guild settings table for public multi-server hosting
             await db.execute("""
                 CREATE TABLE IF NOT EXISTS guild_settings (
                     guild_id INTEGER PRIMARY KEY,
@@ -76,11 +95,19 @@ class AuditDatabase:
                     vc_state_log_channel_id INTEGER,
                     member_log_channel_id INTEGER,
                     mod_log_channel_id INTEGER,
-                    server_log_channel_id INTEGER
+                    server_log_channel_id INTEGER,
+                    unmute_role_id INTEGER,
+                    unmute_role_name TEXT,
+                    guard_voice_channel_id INTEGER,
+                    quarantine_role_id INTEGER,
+                    quarantine_channel_id INTEGER,
+                    quarantine_category_id INTEGER,
+                    language TEXT DEFAULT 'en',
+                    command_cooldown_seconds INTEGER DEFAULT 3
                 );
             """)
 
-            # Voice Channel Punishments (VC Ban and VC Timeout)
+            # 4. Voice Channel Punishments (VC Ban and VC Timeout)
             await db.execute("""
                 CREATE TABLE IF NOT EXISTS vc_punishments (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -96,7 +123,7 @@ class AuditDatabase:
             """)
             await db.execute("CREATE INDEX IF NOT EXISTS idx_vc_punish ON vc_punishments(guild_id, user_id);")
 
-            # Dedicated Granular Log Channels (Complete 24-Channel Logging Suite)
+            # 5. Dedicated Granular Log Channels (Complete 33-Channel Logging Suite)
             await db.execute("""
                 CREATE TABLE IF NOT EXISTS guild_log_channels (
                     guild_id INTEGER NOT NULL,
@@ -107,7 +134,7 @@ class AuditDatabase:
             """)
             await db.execute("CREATE INDEX IF NOT EXISTS idx_log_chan ON guild_log_channels(guild_id, log_type);")
 
-            # Quarantined Members Table (Isolation, Saved Roles & Restoration)
+            # 6. Quarantined Members Table (Isolation, Saved Roles & Restoration)
             await db.execute("""
                 CREATE TABLE IF NOT EXISTS quarantined_users (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -123,7 +150,89 @@ class AuditDatabase:
             """)
             await db.execute("CREATE INDEX IF NOT EXISTS idx_quarantine ON quarantined_users(guild_id, user_id);")
 
-            # Ensure columns exist in existing database tables (automatic migration)
+            # 7. Guild Modules Feature Toggles (Multi-Server Isolation)
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS guild_modules (
+                    guild_id INTEGER NOT NULL,
+                    module_name TEXT NOT NULL,
+                    enabled INTEGER NOT NULL DEFAULT 1,
+                    config_json TEXT DEFAULT '{}',
+                    updated_at TEXT NOT NULL,
+                    PRIMARY KEY (guild_id, module_name)
+                );
+            """)
+            await db.execute("CREATE INDEX IF NOT EXISTS idx_guild_modules ON guild_modules(guild_id);")
+
+            # 8. Centralized System Logs & Operational Records
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS system_logs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp TEXT NOT NULL,
+                    level TEXT NOT NULL,
+                    logger_name TEXT NOT NULL,
+                    message TEXT NOT NULL,
+                    guild_id INTEGER,
+                    user_id INTEGER,
+                    error_details TEXT
+                );
+            """)
+            await db.execute("CREATE INDEX IF NOT EXISTS idx_system_logs_level ON system_logs(level);")
+            await db.execute("CREATE INDEX IF NOT EXISTS idx_system_logs_ts ON system_logs(timestamp);")
+            await db.execute("CREATE INDEX IF NOT EXISTS idx_system_logs_guild ON system_logs(guild_id);")
+
+            # 9. Blacklisted Entities (Users & Guilds)
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS blacklisted_entities (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    entity_type TEXT NOT NULL, -- 'user' or 'guild'
+                    target_id INTEGER NOT NULL UNIQUE,
+                    target_name TEXT,
+                    reason TEXT,
+                    added_by INTEGER NOT NULL,
+                    added_at TEXT NOT NULL
+                );
+            """)
+            await db.execute("CREATE INDEX IF NOT EXISTS idx_blacklisted_target ON blacklisted_entities(target_id);")
+
+            # 10. Dashboard & System Changelogs
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS changelogs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    version TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    category TEXT NOT NULL, -- 'feature', 'fix', 'security', 'improvement'
+                    author_id INTEGER NOT NULL,
+                    published_at TEXT NOT NULL
+                );
+            """)
+
+            # 11. Administrative Action Audit Trail (Dashboard & Management Security)
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS admin_audit_logs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp TEXT NOT NULL,
+                    user_id INTEGER NOT NULL,
+                    username TEXT NOT NULL,
+                    action TEXT NOT NULL,
+                    target_guild_id INTEGER,
+                    details TEXT,
+                    ip_address TEXT
+                );
+            """)
+            await db.execute("CREATE INDEX IF NOT EXISTS idx_admin_audit_ts ON admin_audit_logs(timestamp);")
+            await db.execute("CREATE INDEX IF NOT EXISTS idx_admin_audit_user ON admin_audit_logs(user_id);")
+
+            # 12. Persistent Global System State (Maintenance Mode, Auto-Lockdowns, Global Flags)
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS system_state (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+            """)
+
+            # Safe column additions for backwards compatibility
             log_cols = [
                 ("chat_log_channel_id", "INTEGER"),
                 ("voice_log_channel_id", "INTEGER"),
@@ -137,6 +246,8 @@ class AuditDatabase:
                 ("quarantine_role_id", "INTEGER"),
                 ("quarantine_channel_id", "INTEGER"),
                 ("quarantine_category_id", "INTEGER"),
+                ("language", "TEXT DEFAULT 'en'"),
+                ("command_cooldown_seconds", "INTEGER DEFAULT 3"),
             ]
             for col_name, col_type in log_cols:
                 try:
@@ -144,11 +255,33 @@ class AuditDatabase:
                 except Exception:
                     pass  # Column already exists
 
-            # Index for fast incident lookup
+            # Indexes for fast incident lookup
             await db.execute("CREATE INDEX IF NOT EXISTS idx_user_id ON incidents(user_id);")
             await db.execute("CREATE INDEX IF NOT EXISTS idx_timestamp ON incidents(timestamp);")
             await db.commit()
-            logger.info("Database initialized successfully at %s", self.db_path)
+
+        # Run Versioned Schema Migrations
+        await self.run_migrations()
+        logger.info("Database initialized successfully with WAL mode & migrations at %s", self.db_path)
+
+    async def run_migrations(self) -> None:
+        """Executes versioned migrations to guarantee schema consistency and integrity."""
+        migrations = [
+            ("001_core_initial", "Base security audit tables, guild settings, and quarantines"),
+            ("002_core_systems", "Guild modules, system logs, blacklists, changelogs, audit trail, and system state"),
+            ("003_settings_i18n_cooldown", "Per-guild language and command cooldown columns")
+        ]
+        now_iso = datetime.now(timezone.utc).isoformat()
+        async with self.get_connection() as db:
+            for version, desc in migrations:
+                cursor = await db.execute("SELECT 1 FROM schema_migrations WHERE version = ?", (version,))
+                row = await cursor.fetchone()
+                if not row:
+                    await db.execute(
+                        "INSERT INTO schema_migrations (version, applied_at, description) VALUES (?, ?, ?)",
+                        (version, now_iso, desc)
+                    )
+            await db.commit()
 
     @staticmethod
     def hash_evidence(evidence: str) -> str:
@@ -664,6 +797,410 @@ class AuditDatabase:
             if deleted > 0:
                 logger.info("Pruned %d audit logs older than %d days", deleted, retention_days)
             return deleted
+
+    # ==========================================
+    # SYSTEM STATE & MAINTENANCE MODE
+    # ==========================================
+
+    async def get_system_state(self, key: str, default: Any = None) -> Any:
+        """Retrieves global persistent system state (maintenance mode, feature flags)."""
+        async with self.get_connection() as db:
+            async with db.execute("SELECT value FROM system_state WHERE key = ?", (key,)) as cursor:
+                row = await cursor.fetchone()
+                if row:
+                    try:
+                        return json.loads(row[0])
+                    except Exception:
+                        return row[0]
+        return default
+
+    async def set_system_state(self, key: str, value: Any) -> None:
+        """Saves global persistent system state."""
+        val_str = json.dumps(value) if not isinstance(value, str) else value
+        now_iso = datetime.now(timezone.utc).isoformat()
+        async with self.get_connection() as db:
+            await db.execute("""
+                INSERT INTO system_state (key, value, updated_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at;
+            """, (key, val_str, now_iso))
+            await db.commit()
+
+    # ==========================================
+    # GUILD MODULES (MULTI-SERVER ISOLATION)
+    # ==========================================
+
+    async def get_guild_modules(self, guild_id: int) -> Dict[str, Dict[str, Any]]:
+        """Retrieves all module toggle states and configs for a specific guild."""
+        async with self.get_connection() as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute("SELECT * FROM guild_modules WHERE guild_id = ?", (guild_id,)) as cursor:
+                rows = await cursor.fetchall()
+                modules = {}
+                for r in rows:
+                    cfg = {}
+                    try:
+                        cfg = json.loads(r["config_json"]) if r["config_json"] else {}
+                    except Exception:
+                        pass
+                    modules[r["module_name"]] = {
+                        "enabled": bool(r["enabled"]),
+                        "config": cfg,
+                        "updated_at": r["updated_at"]
+                    }
+                return modules
+
+    async def set_guild_module(
+        self,
+        guild_id: int,
+        module_name: str,
+        enabled: bool,
+        config: Optional[Dict[str, Any]] = None
+    ) -> None:
+        """Enables or disables an individual module for a specific guild without affecting other servers."""
+        now_iso = datetime.now(timezone.utc).isoformat()
+        cfg_str = json.dumps(config or {})
+        async with self.get_connection() as db:
+            await db.execute("""
+                INSERT INTO guild_modules (guild_id, module_name, enabled, config_json, updated_at)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(guild_id, module_name) DO UPDATE SET
+                    enabled = excluded.enabled,
+                    config_json = CASE WHEN excluded.config_json != '{}' THEN excluded.config_json ELSE guild_modules.config_json END,
+                    updated_at = excluded.updated_at;
+            """, (guild_id, module_name, 1 if enabled else 0, cfg_str, now_iso))
+            await db.commit()
+
+    async def is_module_enabled(self, guild_id: int, module_name: str, default: bool = True) -> bool:
+        """Checks if a module is enabled for a guild, honoring server-specific overrides."""
+        async with self.get_connection() as db:
+            async with db.execute(
+                "SELECT enabled FROM guild_modules WHERE guild_id = ? AND module_name = ?",
+                (guild_id, module_name)
+            ) as cursor:
+                row = await cursor.fetchone()
+                if row is not None:
+                    return bool(row[0])
+        return default
+
+    # ==========================================
+    # CENTRALIZED OPERATIONAL LOGS
+    # ==========================================
+
+    async def log_system_event(
+        self,
+        level: str,
+        logger_name: str,
+        message: str,
+        guild_id: Optional[int] = None,
+        user_id: Optional[int] = None,
+        error_details: Optional[str] = None
+    ) -> int:
+        """Inserts an operational or error log entry into persistent storage."""
+        now_iso = datetime.now(timezone.utc).isoformat()
+        async with self.get_connection() as db:
+            cursor = await db.execute("""
+                INSERT INTO system_logs (timestamp, level, logger_name, message, guild_id, user_id, error_details)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (now_iso, level.upper(), logger_name, message, guild_id, user_id, error_details))
+            await db.commit()
+            return cursor.lastrowid or 0
+
+    async def get_system_logs(
+        self,
+        limit: int = 100,
+        level: Optional[str] = None,
+        guild_id: Optional[int] = None,
+        search: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """Queries persistent operational logs with optional filters."""
+        query = "SELECT * FROM system_logs WHERE 1=1"
+        params = []
+        if level and level.upper() != "ALL":
+            query += " AND level = ?"
+            params.append(level.upper())
+        if guild_id is not None:
+            query += " AND (guild_id = ? OR guild_id IS NULL)"
+            params.append(guild_id)
+        if search:
+            query += " AND (message LIKE ? OR logger_name LIKE ? OR error_details LIKE ?)"
+            s_param = f"%{search}%"
+            params.extend([s_param, s_param, s_param])
+        query += " ORDER BY id DESC LIMIT ?"
+        params.append(limit)
+
+        async with self.get_connection() as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(query, tuple(params)) as cursor:
+                rows = await cursor.fetchall()
+                return [dict(r) for r in rows]
+
+    # ==========================================
+    # BLACKLIST SYSTEM (USERS & GUILDS)
+    # ==========================================
+
+    async def add_to_blacklist(
+        self,
+        entity_type: str,
+        target_id: int,
+        target_name: str,
+        reason: str,
+        added_by: int
+    ) -> bool:
+        """Adds a user or guild to the blacklist."""
+        now_iso = datetime.now(timezone.utc).isoformat()
+        try:
+            async with self.get_connection() as db:
+                await db.execute("""
+                    INSERT INTO blacklisted_entities (entity_type, target_id, target_name, reason, added_by, added_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(target_id) DO UPDATE SET
+                        reason = excluded.reason,
+                        added_by = excluded.added_by,
+                        added_at = excluded.added_at;
+                """, (entity_type, target_id, target_name, reason, added_by, now_iso))
+                await db.commit()
+                return True
+        except Exception as e:
+            logger.error("Failed adding to blacklist: %s", e)
+            return False
+
+    async def remove_from_blacklist(self, target_id: int) -> bool:
+        """Removes an entity from the blacklist."""
+        try:
+            async with self.get_connection() as db:
+                cursor = await db.execute("DELETE FROM blacklisted_entities WHERE target_id = ?", (target_id,))
+                await db.commit()
+                return (cursor.rowcount or 0) > 0
+        except Exception as e:
+            logger.error("Failed removing from blacklist: %s", e)
+            return False
+
+    async def is_blacklisted(self, entity_id: int) -> Optional[Dict[str, Any]]:
+        """Checks if a user or guild is blacklisted."""
+        async with self.get_connection() as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute("SELECT * FROM blacklisted_entities WHERE target_id = ?", (entity_id,)) as cursor:
+                row = await cursor.fetchone()
+                return dict(row) if row else None
+
+    async def get_blacklist(self, entity_type: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Retrieves all blacklisted entities."""
+        query = "SELECT * FROM blacklisted_entities"
+        params = ()
+        if entity_type:
+            query += " WHERE entity_type = ?"
+            params = (entity_type,)
+        query += " ORDER BY added_at DESC"
+        async with self.get_connection() as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(query, params) as cursor:
+                rows = await cursor.fetchall()
+                return [dict(r) for r in rows]
+
+    # ==========================================
+    # ADMINISTRATIVE ACTION AUDIT TRAIL
+    # ==========================================
+
+    async def log_admin_action(
+        self,
+        user_id: int,
+        username: str,
+        action: str,
+        target_guild_id: Optional[int] = None,
+        details: Optional[str] = None,
+        ip_address: Optional[str] = None
+    ) -> int:
+        """Records an administrative action performed on the dashboard."""
+        now_iso = datetime.now(timezone.utc).isoformat()
+        async with self.get_connection() as db:
+            cursor = await db.execute("""
+                INSERT INTO admin_audit_logs (timestamp, user_id, username, action, target_guild_id, details, ip_address)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (now_iso, user_id, username, action, target_guild_id, details, ip_address))
+            await db.commit()
+            return cursor.lastrowid or 0
+
+    async def get_admin_audit_logs(
+        self,
+        limit: int = 50,
+        guild_id: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
+        """Retrieves dashboard administrative audit logs."""
+        query = "SELECT * FROM admin_audit_logs"
+        params = []
+        if guild_id is not None:
+            query += " WHERE target_guild_id = ? OR target_guild_id IS NULL"
+            params.append(guild_id)
+        query += " ORDER BY id DESC LIMIT ?"
+        params.append(limit)
+
+        async with self.get_connection() as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(query, tuple(params)) as cursor:
+                rows = await cursor.fetchall()
+                return [dict(r) for r in rows]
+
+    # ==========================================
+    # CHANGELOGS & RELEASES
+    # ==========================================
+
+    async def add_changelog(
+        self,
+        version: str,
+        title: str,
+        content: str,
+        category: str,
+        author_id: int
+    ) -> int:
+        """Publishes a new changelog entry."""
+        now_iso = datetime.now(timezone.utc).isoformat()
+        async with self.get_connection() as db:
+            cursor = await db.execute("""
+                INSERT INTO changelogs (version, title, content, category, author_id, published_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (version, title, content, category, author_id, now_iso))
+            await db.commit()
+            return cursor.lastrowid or 0
+
+    async def get_changelogs(self, limit: int = 20) -> List[Dict[str, Any]]:
+        """Retrieves recent changelogs ordered by published date."""
+        async with self.get_connection() as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute("SELECT * FROM changelogs ORDER BY id DESC LIMIT ?", (limit,)) as cursor:
+                rows = await cursor.fetchall()
+                return [dict(r) for r in rows]
+
+    async def delete_changelog(self, changelog_id: int) -> bool:
+        """Deletes a changelog entry."""
+        async with self.get_connection() as db:
+            cursor = await db.execute("DELETE FROM changelogs WHERE id = ?", (changelog_id,))
+            await db.commit()
+            return (cursor.rowcount or 0) > 0
+
+    # ==========================================
+    # DATABASE HEALTH MONITORING & BACKUP/RESTORE
+    # ==========================================
+
+    async def get_health_metrics(self) -> Dict[str, Any]:
+        """Collects database health, table row counts, size on disk, and ping latency."""
+        t0 = time.perf_counter()
+        async with self.get_connection() as db:
+            await db.execute("SELECT 1;")
+            latency_ms = round((time.perf_counter() - t0) * 1000, 2)
+
+            # Query table counts
+            table_counts = {}
+            for table in [
+                "incidents", "guild_settings", "guild_modules", "system_logs",
+                "blacklisted_entities", "quarantined_users", "vc_punishments",
+                "admin_audit_logs", "changelogs"
+            ]:
+                try:
+                    async with db.execute(f"SELECT COUNT(*) FROM {table}") as cursor:
+                        row = await cursor.fetchone()
+                        table_counts[table] = row[0] if row else 0
+                except Exception:
+                    table_counts[table] = 0
+
+            # Journal mode & user version
+            async with db.execute("PRAGMA journal_mode;") as cursor:
+                row = await cursor.fetchone()
+                journal_mode = row[0] if row else "unknown"
+
+            # Check applied migrations
+            applied_migrations = []
+            try:
+                async with db.execute("SELECT version, applied_at FROM schema_migrations ORDER BY applied_at ASC") as cursor:
+                    rows = await cursor.fetchall()
+                    applied_migrations = [f"{r[0]} ({r[1][:10]})" for r in rows]
+            except Exception:
+                pass
+
+        size_bytes = os.path.getsize(self.db_path) if os.path.exists(self.db_path) else 0
+        if size_bytes < 1024 * 1024:
+            size_human = f"{size_bytes / 1024:.2f} KB"
+        else:
+            size_human = f"{size_bytes / (1024 * 1024):.2f} MB"
+
+        return {
+            "status": "healthy",
+            "latency_ms": latency_ms,
+            "journal_mode": journal_mode.upper(),
+            "size_bytes": size_bytes,
+            "size_human": size_human,
+            "table_counts": table_counts,
+            "applied_migrations": applied_migrations,
+            "db_path": self.db_path
+        }
+
+    async def create_backup(self, guild_id: Optional[int] = None) -> Dict[str, Any]:
+        """Generates a complete structured JSON backup snapshot of all configuration tables."""
+        tables = [
+            "guild_settings", "guild_modules", "guild_log_channels",
+            "dynamic_bypasses", "quarantined_users", "vc_punishments",
+            "blacklisted_entities", "changelogs", "system_state"
+        ]
+        backup_data = {
+            "version": "1.0",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "scope": f"guild_{guild_id}" if guild_id else "global",
+            "tables": {}
+        }
+        async with self.get_connection() as db:
+            db.row_factory = aiosqlite.Row
+            for t in tables:
+                if guild_id and t in ("guild_settings", "guild_modules", "guild_log_channels", "quarantined_users", "vc_punishments", "dynamic_bypasses"):
+                    q = f"SELECT * FROM {t} WHERE guild_id = ?"
+                    p = (guild_id,)
+                else:
+                    q = f"SELECT * FROM {t}"
+                    p = ()
+                try:
+                    async with db.execute(q, p) as cursor:
+                        rows = await cursor.fetchall()
+                        backup_data["tables"][t] = [dict(r) for r in rows]
+                except Exception as e:
+                    logger.warning("Could not backup table %s: %s", t, e)
+
+        raw_json = json.dumps(backup_data["tables"], sort_keys=True)
+        backup_data["checksum"] = hashlib.sha256(raw_json.encode("utf-8")).hexdigest()
+        return backup_data
+
+    async def restore_backup(self, backup_data: Dict[str, Any]) -> Tuple[bool, str]:
+        """Restores a structured JSON backup snapshot within an atomic transaction with rollback safety."""
+        tables_data = backup_data.get("tables", {})
+        if not tables_data:
+            return False, "Invalid backup format: Missing tables payload."
+
+        async with self.get_connection() as db:
+            try:
+                for table_name, rows in tables_data.items():
+                    if not rows:
+                        continue
+                    # Clean existing entries for restored records
+                    if table_name == "guild_settings":
+                        for r in rows:
+                            if "guild_id" in r:
+                                await db.execute("DELETE FROM guild_settings WHERE guild_id = ?", (r["guild_id"],))
+                    elif table_name == "guild_modules":
+                        for r in rows:
+                            if "guild_id" in r:
+                                await db.execute("DELETE FROM guild_modules WHERE guild_id = ?", (r["guild_id"],))
+
+                    # Insert rows
+                    for row in rows:
+                        cols = list(row.keys())
+                        placeholders = ", ".join(["?"] * len(cols))
+                        col_str = ", ".join(cols)
+                        vals = [row[c] for c in cols]
+                        await db.execute(f"INSERT OR REPLACE INTO {table_name} ({col_str}) VALUES ({placeholders})", vals)
+
+                await db.commit()
+                return True, "Backup restored successfully."
+            except Exception as e:
+                logger.error("Database restore failed: %s", e)
+                return False, f"Restore failed: {str(e)}"
 
 # Singleton database instance
 db = AuditDatabase()

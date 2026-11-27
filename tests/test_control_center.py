@@ -46,7 +46,7 @@ class TestControlCenterComponents(unittest.TestCase):
         self.assertIn("Lockdown / Unlock", labels)
         self.assertIn("Raid Purge", labels)
         self.assertIn("Security Audit", labels)
-        self.assertIn("Owner Bypasses", labels)
+        self.assertNotIn("Owner Bypasses", labels)
 
     def test_quarantine_control_view_structure(self):
         view = QuarantineControlView(self.bot, self.guild)
@@ -87,7 +87,7 @@ class TestControlCenterComponents(unittest.TestCase):
         self.assertIn("quarantine", values)
         self.assertIn("voice", values)
         self.assertIn("logs", values)
-        self.assertIn("bypasses", values)
+        self.assertNotIn("bypasses", values)
 
     def test_modals_initialization(self):
         qm = QuarantineModal(self.bot)

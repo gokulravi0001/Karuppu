@@ -462,19 +462,6 @@ class SecurityControlView(ui.View):
 
         await admin_cog.cmd_status(interaction)
 
-    @ui.button(label="Owner Bypasses", style=discord.ButtonStyle.secondary, emoji="⚙️", row=1)
-    async def bypass_btn(self, interaction: discord.Interaction, button: ui.Button):
-        if not self._check_perms(interaction):
-            await interaction.response.send_message("❌ Moderator permissions required.", ephemeral=True)
-            return
-
-        admin_cog = self.bot.get_cog("security")
-        if not admin_cog:
-            await interaction.response.send_message("❌ Admin module is not loaded.", ephemeral=True)
-            return
-
-        await admin_cog.bypass_list(interaction)
-
 
 class QuarantineControlView(ui.View):
     """Interactive action buttons for the /quarantine Command Hub."""
@@ -669,7 +656,6 @@ class MasterDropdown(ui.Select):
             discord.SelectOption(label="Quarantine & Role Recovery", description="Isolate members, strip roles, restore saved roles", emoji="🔒", value="quarantine"),
             discord.SelectOption(label="Voice Defense & 24/7 Guard", description="Voice bans, timeouts, 24/7 Voice Guard", emoji="🎙️", value="voice"),
             discord.SelectOption(label="33-Channel Logging Suite", description="Full setup, zero-creation sync, proxy bot logs", emoji="📜", value="logs"),
-            discord.SelectOption(label="Server Owner Bypasses", description="Manage trusted roles, users, and channels", emoji="⚙️", value="bypasses"),
         ]
         super().__init__(placeholder="Select a security system to manage...", min_values=1, max_values=1, options=options)
 
@@ -759,13 +745,6 @@ class MasterDropdown(ui.Select):
             embed.set_footer(text="Karuppu Audit & Logging Engine")
             view = LogsControlView(self.bot, self.guild)
             await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
-
-        elif choice == "bypasses":
-            admin_cog = self.bot.get_cog("security")
-            if admin_cog:
-                await admin_cog.bypass_list(interaction)
-            else:
-                await interaction.response.send_message("❌ Admin module not loaded.", ephemeral=True)
 
 
 class MasterPanelView(ui.View):

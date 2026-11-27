@@ -74,17 +74,16 @@ HELP_PAGES = {
         )
     },
     "owner_controls": {
-        "title": "👑 Server Owner Controls & Exemptions",
+        "title": "👑 Server Owner Controls & Authority",
         "color": discord.Color.dark_gold(),
         "description": (
             "### The Server Owner Has Sole Authority\n"
-            "To prevent rogue moderators or compromised bots from disabling security, **only the Server Owner** can manage exemptions.\n\n"
-            "### Bypass Slash Commands (Owner Only):\n"
-            "• `/security bypass add_role role:@Role` — Gives a role complete exemption from all security gates.\n"
-            "• `/security bypass remove_role role:@Role` — Revokes an exemption.\n"
-            "• `/security bypass add_user user:@User` — Exempts a specific trusted member.\n"
-            "• `/security bypass add_channel channel:#channel` — Exempts a channel (e.g. staff room or bot-spam).\n"
-            "• `/security bypass list` — Displays all active bypasses."
+            "To prevent rogue moderators or compromised bots from disabling security, **only the Server Owner** has exclusive control over critical administrative functions.\n\n"
+            "### Owner-Exclusive Commands:\n"
+            "• `/panel` — Master interactive Command Hub for security, quarantine, voice, and logs.\n"
+            "• `/security set_unmute_role <role>` — Select which role is authorized to reverse server mutes.\n"
+            "• `/security lockdown` — Emergency lockdown of server channels.\n"
+            "• `/logsync` — Binds existing server log channels without creating new ones."
         )
     },
     "logging": {
@@ -149,12 +148,9 @@ HELP_PAGES = {
             "• `/security vc_guard join [channel]` — Connect bot into a voice channel to stay and guard 24/7.\n"
             "• `/security vc_guard leave` — Disconnect the bot from the voice channel.\n"
             "• `/security vc_guard status` — View active Voice Guard channel and connection status.\n\n"
-            "### Owner-Only Controls & Bypasses\n"
+            "### Owner-Only Controls\n"
             "• `/security set_unmute_role <role>` — [Owner Only] Select which role is authorized to reverse server mutes.\n"
-            "• `/security bypass add_role / remove_role` — Manage role exemptions.\n"
-            "• `/security bypass add_user / remove_user` — Manage member exemptions.\n"
-            "• `/security bypass add_channel / remove_channel` — Manage channel exemptions.\n"
-            "• `/security bypass list` — View all exempt roles, users, and channels."
+            "• `/security lockdown` — [Owner Only] Emergency lock for all channels."
         )
     }
 }
@@ -190,7 +186,7 @@ class HelpSelect(discord.ui.Select):
             discord.SelectOption(
                 label="Server Owner Controls",
                 value="owner_controls",
-                description="How the owner keeps full authority and bypasses",
+                description="How the owner keeps exclusive administrative authority",
                 emoji="👑"
             ),
             discord.SelectOption(

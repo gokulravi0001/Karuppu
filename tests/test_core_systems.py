@@ -116,5 +116,39 @@ class TestI18nAndCooldown(unittest.TestCase):
         is_cd3, _ = cd.check_cooldown(guild_id, user_id, cmd)
         self.assertFalse(is_cd3)
 
+    def test_trusted_member_bypass_and_permission(self):
+        from unittest.mock import MagicMock
+        from src.config import bot_config
+        guild = MagicMock()
+        guild.id = 777777777
+        guild.owner_id = 111111111
+
+        member = MagicMock()
+        member.id = 555555555
+        member.bot = False
+        member.roles = []
+        member.guild_permissions = MagicMock()
+        member.guild_permissions.administrator = False
+        member.guild_permissions.manage_guild = False
+        member.guild_permissions.moderate_members = False
+
+        # Initially not trusted, not bypassed, not mod
+        bot_config.trusted_members_cache.discard((guild.id, member.id))
+        self.assertFalse(bot_config.is_trusted(guild.id, member.id))
+        self.assertFalse(bot_config.is_bypassed(guild, member))
+        self.assertFalse(bot_config.is_trusted_or_mod(guild, member))
+
+        # Add to trusted members
+        bot_config.add_trusted_cache(guild.id, member.id)
+        self.assertTrue(bot_config.is_trusted(guild.id, member.id))
+        self.assertTrue(bot_config.is_bypassed(guild, member))
+        self.assertTrue(bot_config.is_trusted_or_mod(guild, member))
+
+        # Clean up
+        bot_config.remove_trusted_cache(guild.id, member.id)
+        self.assertFalse(bot_config.is_trusted(guild.id, member.id))
+        self.assertFalse(bot_config.is_bypassed(guild, member))
+        self.assertFalse(bot_config.is_trusted_or_mod(guild, member))
+
 if __name__ == "__main__":
     unittest.main()

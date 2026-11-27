@@ -48,6 +48,7 @@ class BotConfig:
         self.vc_punishments_cache: Dict[Tuple[int, int], Dict[str, Any]] = {}
         self.guild_log_channels_cache: Dict[Tuple[int, str], int] = {}
         self.quarantine_cache: Dict[Tuple[int, int], Dict[str, Any]] = {}
+        self.trusted_members_cache: Set[Tuple[int, int]] = set()
         self.load()
 
     def load(self) -> None:
@@ -129,12 +130,39 @@ class BotConfig:
             return True
         return False
 
+    def is_trusted(self, guild_id: Optional[int], user_id: int) -> bool:
+        """Checks if a user is explicitly designated as a trusted member in the guild."""
+        if not guild_id:
+            return False
+        return (guild_id, user_id) in self.trusted_members_cache
+
+    def add_trusted_cache(self, guild_id: int, user_id: int) -> None:
+        self.trusted_members_cache.add((guild_id, user_id))
+
+    def remove_trusted_cache(self, guild_id: int, user_id: int) -> None:
+        self.trusted_members_cache.discard((guild_id, user_id))
+
+    def is_trusted_or_mod(self, guild: Optional[discord.Guild], user: Any) -> bool:
+        """Checks if a user is the server owner, an administrator/moderator, or an explicitly designated trusted member."""
+        if not guild or not user:
+            return False
+        if self.is_guild_owner(guild, user.id):
+            return True
+        if self.is_trusted(guild.id, user.id):
+            return True
+        if isinstance(user, discord.Member):
+            perms = user.guild_permissions
+            return bool(perms.administrator or perms.manage_guild or perms.moderate_members)
+        return False
+
     def is_bypassed(self, guild: Optional[discord.Guild], member: discord.Member, channel: Optional[discord.abc.GuildChannel] = None) -> bool:
         """Determines if a member or channel is exempted from security rules by the owner."""
         if member.bot:
             return True  # Internal bots are handled or exempted if configured
         if self.is_guild_owner(guild, member.id):
             return True  # Server owner always bypasses
+        if guild and self.is_trusted(guild.id, member.id):
+            return True  # Trusted members always bypass security filters
 
         # Check configured bypass users
         configured_users = self.raw_data.get("owner_bypasses", {}).get("users", [])

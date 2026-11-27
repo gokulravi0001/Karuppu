@@ -232,6 +232,19 @@ class AuditDatabase:
                 );
             """)
 
+            # 13. Guild Trusted Members (Bypass security filters and run bot commands without native perms)
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS guild_trusted_members (
+                    guild_id INTEGER NOT NULL,
+                    user_id INTEGER NOT NULL,
+                    user_name TEXT,
+                    added_by INTEGER NOT NULL,
+                    added_at TEXT NOT NULL,
+                    PRIMARY KEY (guild_id, user_id)
+                );
+            """)
+            await db.execute("CREATE INDEX IF NOT EXISTS idx_trusted_guild ON guild_trusted_members(guild_id);")
+
             # Safe column additions for backwards compatibility
             log_cols = [
                 ("chat_log_channel_id", "INTEGER"),
@@ -269,7 +282,8 @@ class AuditDatabase:
         migrations = [
             ("001_core_initial", "Base security audit tables, guild settings, and quarantines"),
             ("002_core_systems", "Guild modules, system logs, blacklists, changelogs, audit trail, and system state"),
-            ("003_settings_i18n_cooldown", "Per-guild language and command cooldown columns")
+            ("003_settings_i18n_cooldown", "Per-guild language and command cooldown columns"),
+            ("004_trusted_members", "Persistent guild trusted members registry")
         ]
         now_iso = datetime.now(timezone.utc).isoformat()
         async with self.get_connection() as db:
@@ -1079,6 +1093,60 @@ class AuditDatabase:
             return (cursor.rowcount or 0) > 0
 
     # ==========================================
+    # GUILD TRUSTED MEMBERS
+    # ==========================================
+
+    async def add_trusted_member(self, guild_id: int, user_id: int, user_name: str, added_by: int) -> bool:
+        """Adds a member to the guild's trusted members registry."""
+        timestamp = datetime.now(timezone.utc).isoformat()
+        try:
+            async with self.get_connection() as db:
+                await db.execute("""
+                    INSERT OR REPLACE INTO guild_trusted_members (guild_id, user_id, user_name, added_by, added_at)
+                    VALUES (?, ?, ?, ?, ?)
+                """, (guild_id, user_id, user_name, added_by, timestamp))
+                await db.commit()
+            return True
+        except Exception as e:
+            logger.error("Failed to add trusted member (%d, %d): %s", guild_id, user_id, e)
+            return False
+
+    async def remove_trusted_member(self, guild_id: int, user_id: int) -> bool:
+        """Removes a member from the guild's trusted members registry."""
+        try:
+            async with self.get_connection() as db:
+                await db.execute("DELETE FROM guild_trusted_members WHERE guild_id = ? AND user_id = ?", (guild_id, user_id))
+                await db.commit()
+            return True
+        except Exception as e:
+            logger.error("Failed to remove trusted member (%d, %d): %s", guild_id, user_id, e)
+            return False
+
+    async def get_trusted_members(self, guild_id: int) -> List[Dict[str, Any]]:
+        """Retrieves all trusted members for a guild."""
+        try:
+            async with self.get_connection() as db:
+                db.row_factory = aiosqlite.Row
+                async with db.execute("SELECT * FROM guild_trusted_members WHERE guild_id = ? ORDER BY added_at DESC", (guild_id,)) as cursor:
+                    rows = await cursor.fetchall()
+                    return [dict(r) for r in rows]
+        except Exception as e:
+            logger.error("Failed to get trusted members for guild %d: %s", guild_id, e)
+            return []
+
+    async def get_all_trusted_members(self) -> List[Dict[str, Any]]:
+        """Retrieves all trusted members across all guilds for in-memory caching."""
+        try:
+            async with self.get_connection() as db:
+                db.row_factory = aiosqlite.Row
+                async with db.execute("SELECT guild_id, user_id FROM guild_trusted_members") as cursor:
+                    rows = await cursor.fetchall()
+                    return [dict(r) for r in rows]
+        except Exception as e:
+            logger.error("Failed to get all trusted members: %s", e)
+            return []
+
+    # ==========================================
     # DATABASE HEALTH MONITORING & BACKUP/RESTORE
     # ==========================================
 
@@ -1094,7 +1162,7 @@ class AuditDatabase:
             for table in [
                 "incidents", "guild_settings", "guild_modules", "system_logs",
                 "blacklisted_entities", "quarantined_users", "vc_punishments",
-                "admin_audit_logs", "changelogs"
+                "admin_audit_logs", "changelogs", "guild_trusted_members"
             ]:
                 try:
                     async with db.execute(f"SELECT COUNT(*) FROM {table}") as cursor:
@@ -1139,7 +1207,7 @@ class AuditDatabase:
         tables = [
             "guild_settings", "guild_modules", "guild_log_channels",
             "dynamic_bypasses", "quarantined_users", "vc_punishments",
-            "blacklisted_entities", "changelogs", "system_state"
+            "blacklisted_entities", "changelogs", "system_state", "guild_trusted_members"
         ]
         backup_data = {
             "version": "1.0",
@@ -1150,7 +1218,7 @@ class AuditDatabase:
         async with self.get_connection() as db:
             db.row_factory = aiosqlite.Row
             for t in tables:
-                if guild_id and t in ("guild_settings", "guild_modules", "guild_log_channels", "quarantined_users", "vc_punishments", "dynamic_bypasses"):
+                if guild_id and t in ("guild_settings", "guild_modules", "guild_log_channels", "quarantined_users", "vc_punishments", "dynamic_bypasses", "guild_trusted_members"):
                     q = f"SELECT * FROM {t} WHERE guild_id = ?"
                     p = (guild_id,)
                 else:

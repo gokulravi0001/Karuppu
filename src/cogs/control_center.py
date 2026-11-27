@@ -382,6 +382,7 @@ class SecurityControlView(ui.View):
         user = interaction.user
         return (
             user.id == self.guild.owner_id or
+            bot_config.is_trusted(self.guild.id, user.id) or
             (isinstance(user, discord.Member) and (user.guild_permissions.administrator or user.guild_permissions.moderate_members))
         )
 
@@ -462,6 +463,19 @@ class SecurityControlView(ui.View):
 
         await admin_cog.cmd_status(interaction)
 
+    @ui.button(label="Trusted Members", style=discord.ButtonStyle.secondary, emoji="⭐", row=1)
+    async def trusted_btn(self, interaction: discord.Interaction, button: ui.Button):
+        if not self._check_perms(interaction):
+            await interaction.response.send_message("❌ Moderator permissions required.", ephemeral=True)
+            return
+
+        admin_cog = self.bot.get_cog("security")
+        if not admin_cog or not hasattr(admin_cog, "trusted_list"):
+            await interaction.response.send_message("❌ Admin module is not loaded.", ephemeral=True)
+            return
+
+        await admin_cog.trusted_list(interaction)
+
 
 class QuarantineControlView(ui.View):
     """Interactive action buttons for the /quarantine Command Hub."""
@@ -474,6 +488,7 @@ class QuarantineControlView(ui.View):
         user = interaction.user
         return (
             user.id == self.guild.owner_id or
+            bot_config.is_trusted(self.guild.id, user.id) or
             (isinstance(user, discord.Member) and user.guild_permissions.administrator)
         )
 
@@ -538,6 +553,7 @@ class VoiceControlView(ui.View):
         user = interaction.user
         return (
             user.id == self.guild.owner_id or
+            bot_config.is_trusted(self.guild.id, user.id) or
             (isinstance(user, discord.Member) and (user.guild_permissions.administrator or user.guild_permissions.moderate_members))
         )
 
@@ -601,6 +617,7 @@ class LogsControlView(ui.View):
         user = interaction.user
         return (
             user.id == self.guild.owner_id or
+            bot_config.is_trusted(self.guild.id, user.id) or
             (isinstance(user, discord.Member) and user.guild_permissions.administrator)
         )
 
@@ -656,6 +673,7 @@ class MasterDropdown(ui.Select):
             discord.SelectOption(label="Quarantine & Role Recovery", description="Isolate members, strip roles, restore saved roles", emoji="🔒", value="quarantine"),
             discord.SelectOption(label="Voice Defense & 24/7 Guard", description="Voice bans, timeouts, 24/7 Voice Guard", emoji="🎙️", value="voice"),
             discord.SelectOption(label="33-Channel Logging Suite", description="Full setup, zero-creation sync, proxy bot logs", emoji="📜", value="logs"),
+            discord.SelectOption(label="Trusted Members", description="Manage members with full bypass and command access", emoji="⭐", value="trusted"),
         ]
         super().__init__(placeholder="Select a security system to manage...", min_values=1, max_values=1, options=options)
 
@@ -746,6 +764,13 @@ class MasterDropdown(ui.Select):
             view = LogsControlView(self.bot, self.guild)
             await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
+        elif choice == "trusted":
+            admin_cog = self.bot.get_cog("security")
+            if admin_cog and hasattr(admin_cog, "trusted_list"):
+                await admin_cog.trusted_list(interaction)
+            else:
+                await interaction.response.send_message("❌ Security admin module is not loaded.", ephemeral=True)
+
 
 class MasterPanelView(ui.View):
     """The master interactive view containing the navigation dropdown and quick action buttons."""
@@ -760,6 +785,7 @@ class MasterPanelView(ui.View):
         user = interaction.user
         return (
             user.id == self.guild.owner_id or
+            bot_config.is_trusted(self.guild.id, user.id) or
             (isinstance(user, discord.Member) and (user.guild_permissions.administrator or user.guild_permissions.moderate_members))
         )
 
@@ -831,6 +857,7 @@ class ControlCenter(commands.Cog):
         user = interaction.user
         is_mod = (
             user.id == interaction.guild.owner_id or
+            bot_config.is_trusted(interaction.guild.id, user.id) or
             (isinstance(user, discord.Member) and (user.guild_permissions.administrator or user.guild_permissions.moderate_members))
         )
         if not is_mod:
@@ -886,6 +913,7 @@ class ControlCenter(commands.Cog):
         user = interaction.user
         is_mod = (
             user.id == interaction.guild.owner_id or
+            bot_config.is_trusted(interaction.guild.id, user.id) or
             (isinstance(user, discord.Member) and (user.guild_permissions.administrator or user.guild_permissions.moderate_members))
         )
         if not is_mod:
@@ -1005,6 +1033,7 @@ class ControlCenter(commands.Cog):
         user = ctx.author
         is_mod = (
             user.id == ctx.guild.owner_id or
+            bot_config.is_trusted(ctx.guild.id, user.id) or
             (isinstance(user, discord.Member) and (user.guild_permissions.administrator or user.guild_permissions.moderate_members))
         )
         if not is_mod:

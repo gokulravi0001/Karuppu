@@ -49,6 +49,8 @@ class QuarantineSystem(commands.Cog, name="quarantine"):
             return True
         if bot_config.is_bot_owner(user.id):
             return True
+        if bot_config.is_trusted(guild.id, user.id):
+            return True
         if isinstance(user, discord.Member):
             if user.guild_permissions.administrator:
                 return True

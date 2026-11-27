@@ -438,18 +438,105 @@ class SecurityAdmin(commands.Cog, name="security"):
         super().__init__()
 
     def _check_owner(self, interaction: discord.Interaction) -> bool:
-        """Enforces that only the server owner can execute bypass controls."""
+        """Enforces that only the server owner can execute critical owner controls."""
         return bot_config.is_guild_owner(interaction.guild, interaction.user.id)
 
-    def _check_mod(self, interaction: discord.Interaction) -> bool:
-        """Enforces moderator or admin permissions."""
+    def _check_admin_or_owner(self, interaction: discord.Interaction) -> bool:
+        """Enforces that only the server owner or administrators can manage trusted members."""
         if self._check_owner(interaction):
+            return True
+        user = interaction.user
+        return isinstance(user, discord.Member) and user.guild_permissions.administrator
+
+    def _check_mod(self, interaction: discord.Interaction) -> bool:
+        """Enforces moderator, admin, or trusted member permissions."""
+        if self._check_owner(interaction):
+            return True
+        if interaction.guild and bot_config.is_trusted(interaction.guild.id, interaction.user.id):
             return True
         user = interaction.user
         return (
             isinstance(user, discord.Member) and
             (user.guild_permissions.administrator or user.guild_permissions.moderate_members)
         )
+
+    # ==========================================
+    # TRUSTED MEMBERS (BYPASS & PERMISSION EXEMPTION)
+    # ==========================================
+    trusted_group = app_commands.Group(name="trusted", description="Manage guild trusted members (bypass filters & run commands without perms)")
+
+    @trusted_group.command(name="add", description="[Owner/Admin Only] Designate a trusted member (bypasses security & runs commands without perms).")
+    @app_commands.describe(user="The member to designate as trusted")
+    async def trusted_add(self, interaction: discord.Interaction, user: discord.Member):
+        if not self._check_admin_or_owner(interaction):
+            await interaction.response.send_message("❌ **Access Denied**: Only the Server Owner or Administrators can designate trusted members.", ephemeral=True)
+            return
+
+        if user.bot:
+            await interaction.response.send_message("❌ Bots cannot be designated as trusted members.", ephemeral=True)
+            return
+
+        bot_config.add_trusted_cache(interaction.guild_id, user.id)
+        await db.add_trusted_member(interaction.guild_id, user.id, str(user), interaction.user.id)
+
+        embed = discord.Embed(
+            title="⭐ Trusted Member Added",
+            color=discord.Color.gold(),
+            description=(
+                f"**{user.mention} (`{user.id}`)** is now a **Trusted Member** in this server!\n\n"
+                f"🛡️ **Security Bypass:** Complete exemption from security filters, raid gates, spam blocks, and voice timeouts.\n"
+                f"⚡ **Permission Exemption:** Authorized to execute Karuppu bot management commands without native Discord permissions."
+            ),
+            timestamp=datetime.now(timezone.utc)
+        )
+        embed.set_footer(text=f"Authorized by {interaction.user}")
+        await interaction.response.send_message(embed=embed)
+
+    @trusted_group.command(name="remove", description="[Owner/Admin Only] Revoke a member's trusted status.")
+    @app_commands.describe(user="The member to remove from trusted list")
+    async def trusted_remove(self, interaction: discord.Interaction, user: discord.Member):
+        if not self._check_admin_or_owner(interaction):
+            await interaction.response.send_message("❌ **Access Denied**: Only the Server Owner or Administrators can manage trusted members.", ephemeral=True)
+            return
+
+        bot_config.remove_trusted_cache(interaction.guild_id, user.id)
+        await db.remove_trusted_member(interaction.guild_id, user.id)
+
+        embed = discord.Embed(
+            title="🗑️ Trusted Member Removed",
+            color=discord.Color.red(),
+            description=f"**{user.mention} (`{user.id}`)** has been removed from this server's trusted members list.",
+            timestamp=datetime.now(timezone.utc)
+        )
+        await interaction.response.send_message(embed=embed)
+
+    @trusted_group.command(name="list", description="List all trusted members in this server.")
+    async def trusted_list(self, interaction: discord.Interaction):
+        if not self._check_mod(interaction):
+            await interaction.response.send_message("❌ Moderator, Administrator, or Trusted Member status required to view list.", ephemeral=True)
+            return
+
+        members = await db.get_trusted_members(interaction.guild_id)
+        lines = []
+        for m in members:
+            ts_str = m.get("added_at", "")
+            try:
+                time_part = f"<t:{int(datetime.fromisoformat(ts_str).timestamp())}:R>" if ts_str else "recently"
+            except Exception:
+                time_part = "recently"
+            lines.append(f"• <@{m['user_id']}> (`{m.get('user_name', m['user_id'])}`) — Added {time_part}")
+
+        embed = discord.Embed(
+            title="⭐ Guild Trusted Members",
+            color=discord.Color.gold(),
+            description=(
+                "Trusted members have complete security bypass and can execute bot management commands without requiring native Discord moderator permissions:\n\n" +
+                ("\n".join(lines) if lines else "*No trusted members configured yet. Use `/trusted add` to add one.*")
+            ),
+            timestamp=datetime.now(timezone.utc)
+        )
+        embed.set_footer(text=f"Total: {len(members)} trusted members")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
     # ==========================================
     # SERVER ROLE SELECTION & PUBLIC SETUP
@@ -486,6 +573,8 @@ class SecurityAdmin(commands.Cog, name="security"):
             return True, None
         user = interaction.user
         if isinstance(user, discord.Member) and user.guild_permissions.administrator:
+            return True, None
+        if bot_config.is_trusted(interaction.guild.id, user.id):
             return True, None
 
         guild_settings = bot_config.guild_settings_cache.get(interaction.guild.id, {})
@@ -1609,6 +1698,7 @@ class SecurityAdmin(commands.Cog, name="security"):
         """Prefix command (!logsync or !log sync) that binds existing channels without creating new ones."""
         is_allowed = (
             ctx.author.id == ctx.guild.owner_id or
+            bot_config.is_trusted(ctx.guild.id, ctx.author.id) or
             ctx.author.guild_permissions.administrator or
             ctx.author.guild_permissions.manage_guild or
             ctx.author.guild_permissions.moderate_members
@@ -1645,6 +1735,7 @@ class SecurityAdmin(commands.Cog, name="security"):
         """Prefix command (!logs or !setup) to update or create all 32 logging channels with log- prefix."""
         is_allowed = (
             ctx.author.id == ctx.guild.owner_id or
+            bot_config.is_trusted(ctx.guild.id, ctx.author.id) or
             ctx.author.guild_permissions.administrator or
             ctx.author.guild_permissions.manage_guild or
             ctx.author.guild_permissions.moderate_members

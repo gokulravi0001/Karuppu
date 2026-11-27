@@ -176,6 +176,15 @@ class SecurityBot(commands.Bot):
         except Exception as e:
             logger.error("Failed loading active quarantined members: %s", e)
 
+        # 2d. Load Guild Trusted Members Cache (Security Bypass & Command Authorization)
+        try:
+            trusted_list = await db.get_all_trusted_members()
+            for t in trusted_list:
+                bot_config.trusted_members_cache.add((t["guild_id"], t["user_id"]))
+            logger.info("Loaded %d trusted members into cache", len(bot_config.trusted_members_cache))
+        except Exception as e:
+            logger.error("Failed loading trusted members into cache: %s", e)
+
         # 3. Load Security Cogs
         extensions = [
             "src.cogs.trust_gate",
@@ -417,6 +426,7 @@ class SecurityBot(commands.Bot):
             member = message.author
             is_allowed = (
                 member.id == message.guild.owner_id or
+                bot_config.is_trusted(message.guild.id, member.id) or
                 (isinstance(member, discord.Member) and (
                     member.guild_permissions.administrator or
                     member.guild_permissions.manage_guild or
@@ -466,6 +476,7 @@ class SecurityBot(commands.Bot):
             member = message.author
             is_admin = (
                 member.id == message.guild.owner_id or
+                bot_config.is_trusted(message.guild.id, member.id) or
                 (isinstance(member, discord.Member) and member.guild_permissions.administrator)
             )
             if not is_admin:
